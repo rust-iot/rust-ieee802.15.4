@@ -4,6 +4,8 @@
 #![deny(missing_docs)]
 #![deny(warnings)]
 
+#![no_std]
+
 
 #[cfg(test)]
 mod tests {
