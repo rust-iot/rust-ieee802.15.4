@@ -1,4 +1,4 @@
-# IEEE 802.15.4 [![Build Status](https://travis-ci.org/braun-robotics/ieee-802.15.4.svg?branch=master)](https://travis-ci.org/braun-robotics/ieee-802.15.4)
+# IEEE 802.15.4 [![Build Status](https://travis-ci.com/braun-robotics/ieee-802.15.4.svg?branch=master)](https://travis-ci.com/braun-robotics/ieee-802.15.4)
 
 ## Introduction
 
