@@ -7,4 +7,7 @@
 #![no_std]
 
 
+extern crate byteorder;
+
+
 pub mod mac;
