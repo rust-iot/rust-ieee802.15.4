@@ -1,0 +1,5 @@
+[package]
+name    = "ieee802154"
+version = "0.1.0"
+authors = ["Hanno Braun <hanno@braun-robotics.com>"]
+edition = "2018"
