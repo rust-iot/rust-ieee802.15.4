@@ -1,4 +1,4 @@
-# IEEE 802.15.4 [![Build Status](https://travis-ci.org/braun-robotics/ieee-802.15.4.svg?branch=master)](https://travis-ci.org/braun-robotics/ieee-802.15.4)
+# IEEE 802.15.4 [![Build Status](https://travis-ci.com/braun-robotics/ieee-802.15.4.svg?branch=master)](https://travis-ci.com/braun-robotics/ieee-802.15.4)
 
 ## Introduction
 
@@ -27,4 +27,5 @@ See [LICENSE] for full details.
 [LICENSE]: https://github.com/braun-robotics/ieee-802.15.4/blob/master/LICENSE
 
 
-**Created by [Braun Robotics](https://braun-robotics.com/)**
+**Created by [Braun Robotics](https://braun-robotics.com/)**<br />
+**Initial development sponsored by [Ferrous Systems](https://ferrous-systems.com/)**
