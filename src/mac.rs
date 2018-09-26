@@ -8,6 +8,7 @@ use byteorder::{
 
 
 /// PAN ID and short address
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub struct Address {
     /// The PAN ID
     pub pan_id: u16,
