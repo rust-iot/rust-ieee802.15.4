@@ -9,6 +9,60 @@ use byteorder::{
 };
 
 
+/// MAC frame
+pub struct Frame<'p> {
+    /// The frame header
+    pub header: Header,
+
+    /// The frame payload
+    pub payload: &'p [u8],
+
+    /// The frame footer
+    pub footer: [u8; 2],
+}
+
+impl<'p> Frame<'p> {
+    /// Writes the frame into a buffer
+    ///
+    /// Returns the number of bytes written.
+    ///
+    /// # Panics
+    ///
+    /// Panics, if the buffer is not long enough to hold the frame.
+    pub fn write(&self, buf: &mut [u8], write_footer: WriteFooter) -> usize {
+        let mut len = 0;
+
+        // Write header
+        len += self.header.write(&mut buf[len..]);
+
+        // Write payload
+        buf[len .. len+self.payload.len()].copy_from_slice(self.payload);
+        len += self.payload.len();
+
+        // Write footer
+        match write_footer {
+            WriteFooter::No => (),
+        }
+
+        len
+    }
+}
+
+
+/// Tells [`Frame::write`] whether to write the footer
+///
+/// Eventually, this should support three options:
+/// - Don't write the footer
+/// - Calculate the 2-byte CRC checksum and write that as the footer
+/// - Write the footer as written into the `footer` field
+///
+/// For now, only not writing the footer is supported.
+pub enum WriteFooter {
+    /// Don't write the footer
+    No,
+}
+
+
 /// MAC frame header
 pub struct Header {
     /// Frame Type
