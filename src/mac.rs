@@ -77,13 +77,9 @@ impl Header {
         buf[len] = self.seq;
         len += size_of_val(&self.seq);
 
-        // Write destination address
-        self.destination.write(&mut buf[len..]);
-        len += size_of_val(&self.destination);
-
-        // Write source address
-        self.source.write(&mut buf[len..]);
-        len += size_of_val(&self.source);
+        // Write addresses
+        len += self.destination.write(&mut buf[len..]);
+        len += self.source.write(&mut buf[len..]);
 
         len
     }
@@ -149,8 +145,15 @@ impl Address {
     /// # Panics
     ///
     /// Panics, if the buffer is less than 4 bytes long.
-    pub fn write(&self, buf: &mut [u8]) {
-        LittleEndian::write_u16(buf, self.pan_id);
-        LittleEndian::write_u16(&mut buf[2..], self.short_addr);
+    pub fn write(&self, buf: &mut [u8]) -> usize {
+        let mut len = 0;
+
+        LittleEndian::write_u16(&mut buf[len..], self.pan_id);
+        len += size_of_val(&self.pan_id);
+
+        LittleEndian::write_u16(&mut buf[len..], self.short_addr);
+        len += size_of_val(&self.short_addr);
+
+        len
     }
 }
