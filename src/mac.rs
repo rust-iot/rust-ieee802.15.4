@@ -136,6 +136,14 @@ pub struct Address {
 }
 
 impl Address {
+    /// Returns the broadcast address
+    pub fn broadcast() -> Self {
+        Address {
+            pan_id:     0xffff,
+            short_addr: 0xffff,
+        }
+    }
+
     /// Writes the address into a buffer
     ///
     /// # Panics
