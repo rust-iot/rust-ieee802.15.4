@@ -22,6 +22,27 @@ pub struct Frame<'p> {
 }
 
 impl<'p> Frame<'p> {
+    /// Reads a frame from the buffer
+    pub fn read(buf: &'p [u8]) -> Result<Self, ReadError> {
+        let (header, len) = Header::read(buf)?;
+
+        if buf[len..].len() < 2 {
+            return Err(ReadError::NotAFrame);
+        }
+
+        let mut footer     = [0; 2];
+        let     footer_pos = buf.len() - 2;
+        footer.copy_from_slice(&buf[footer_pos..]);
+
+        let payload = &buf[len .. footer_pos];
+
+        Ok(Frame {
+            header,
+            payload,
+            footer,
+        })
+    }
+
     /// Writes the frame into a buffer
     ///
     /// Returns the number of bytes written.
@@ -99,6 +120,68 @@ pub struct Header {
 }
 
 impl Header {
+    /// Reads a header from the buffer
+    pub fn read(buf: &[u8]) -> Result<(Self, usize), ReadError> {
+        // First, make sure we have enough buffer for the Frame Control field
+        if buf.len() < 2 {
+            return Err(ReadError::NotAFrame);
+        }
+
+        let mut len = 0;
+
+        let frame_type       = (buf[0] >> 0) & 0x7;
+        let security         = (buf[0] >> 3) & 0x1;
+        let frame_pending    = (buf[0] >> 4) & 0x1;
+        let ack_request      = (buf[0] >> 5) & 0x1;
+        let pan_id_compress  = (buf[0] >> 6) & 0x1;
+        let dest_addr_mode   = (buf[1] >> 2) & 0x3;
+        let frame_version    = (buf[1] >> 4) & 0x3;
+        let source_addr_mode = (buf[1] >> 6) & 0x3;
+
+        let frame_type = FrameType::from_bits(frame_type)
+            .ok_or(ReadError::InvalidFrameType(frame_type))?;
+        let security = Security::from_bits(security)
+            .ok_or(ReadError::SecurityNotSupported)?;
+        let frame_pending = frame_pending == 0b1;
+        let ack_request = ack_request == 0b1;
+        let pan_id_compress = PanIdCompress::from_bits(pan_id_compress)
+            .ok_or(ReadError::PanIdCompressNotSupported)?;
+
+        if dest_addr_mode != 0b10 {
+            return Err(ReadError::AddressModeNotSupported(dest_addr_mode));
+        }
+        if frame_version != 0b01 {
+            return Err(ReadError::InvalidFrameVersion(frame_version));
+        }
+        if source_addr_mode != 0b10 {
+            return Err(ReadError::AddressModeNotSupported(source_addr_mode));
+        }
+
+        len += 2;
+
+        let seq = buf[len];
+        len += 1;
+
+        let (destination, addr_len) = Address::read(&buf[len..])?;
+        len += addr_len;
+
+        let (source, addr_len) = Address::read(&buf[len..])?;
+        len += addr_len;
+
+        let header = Header {
+            frame_type,
+            security,
+            frame_pending,
+            ack_request,
+            pan_id_compress,
+            seq,
+            destination,
+            source,
+        };
+
+        Ok((header, len))
+    }
+
     /// Writes the header into a buffer
     ///
     /// Returns the number of bytes written.
@@ -156,6 +239,20 @@ pub enum FrameType {
     MacCommand = 0b011,
 }
 
+impl FrameType {
+    /// Creates an instance from the value given
+    pub fn from_bits(bits: u8) -> Option<Self> {
+        match bits {
+            0b000 => Some(FrameType::Beacon),
+            0b001 => Some(FrameType::Data),
+            0b010 => Some(FrameType::Acknowledgement),
+            0b011 => Some(FrameType::MacCommand),
+            _     => None,
+        }
+    }
+}
+
+
 /// MAC header auxiliary security header
 ///
 /// Auxiliary security headers are currently unsupported.
@@ -165,6 +262,17 @@ pub enum Security {
     None = 0b0,
 }
 
+impl Security {
+    /// Creates an instance from the value given
+    pub fn from_bits(bits: u8) -> Option<Self> {
+        match bits {
+            0b0 => Some(Security::None),
+            _   => None,
+        }
+    }
+}
+
+
 /// PAN ID compression
 ///
 /// PAN ID compression is currently not supported.
@@ -172,6 +280,16 @@ pub enum Security {
 pub enum PanIdCompress {
     /// PAN ID compression is disabled
     Disabled = 0b0,
+}
+
+impl PanIdCompress {
+    /// Creates an instance from the value given
+    pub fn from_bits(bits: u8) -> Option<Self> {
+        match bits {
+            0b0 => Some(PanIdCompress::Disabled),
+            _   => None,
+        }
+    }
 }
 
 
@@ -194,6 +312,28 @@ impl Address {
         }
     }
 
+    /// Reads an address from the buffer
+    pub fn read(buf: &[u8]) -> Result<(Self, usize), ReadError> {
+        if buf.len() < 4 {
+            return Err(ReadError::NotAFrame);
+        }
+
+        let mut len = 0;
+
+        let pan_id = LittleEndian::read_u16(&buf[len..]);
+        len += size_of_val(&pan_id);
+
+        let short_addr = LittleEndian::read_u16(&buf[len..]);
+        len += size_of_val(&short_addr);
+
+        let address = Address {
+            pan_id,
+            short_addr,
+        };
+
+        Ok((address, len))
+    }
+
     /// Writes the address into a buffer
     ///
     /// # Panics
@@ -210,4 +350,27 @@ impl Address {
 
         len
     }
+}
+
+
+/// Signals an error that occured while reading a frame
+#[derive(Debug)]
+pub enum ReadError {
+    /// Buffer does not contain a full frame
+    NotAFrame,
+
+    /// The frame type is not recognized
+    InvalidFrameType(u8),
+
+    /// The frame has the security bit set, which is not supported
+    SecurityNotSupported,
+
+    /// The frame compresses the PAN ID, which is not supported
+    PanIdCompressNotSupported,
+
+    /// The frame's address mode is not supported
+    AddressModeNotSupported(u8),
+
+    /// The frame's version is invalid or not supported
+    InvalidFrameVersion(u8),
 }
