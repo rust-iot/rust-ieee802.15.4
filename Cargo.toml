@@ -4,4 +4,6 @@ version = "0.1.0"
 authors = ["Hanno Braun <hanno@braun-robotics.com>"]
 
 [dependencies]
-byteorder = { version = "1", default-features = false }
+byteorder     = { version = "1", default-features = false }
+hash32        = "0.1"
+hash32-derive = "0.1"

@@ -296,7 +296,7 @@ impl PanIdCompress {
 
 
 /// PAN ID and short address
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Hash32, PartialEq)]
 pub struct Address {
     /// The PAN ID
     pub pan_id: u16,
