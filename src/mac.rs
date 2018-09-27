@@ -10,6 +10,7 @@ use byteorder::{
 
 
 /// MAC frame
+#[derive(Debug)]
 pub struct Frame<'p> {
     /// The frame header
     pub header: Header,
@@ -85,6 +86,7 @@ pub enum WriteFooter {
 
 
 /// MAC frame header
+#[derive(Debug)]
 pub struct Header {
     /// Frame Type
     pub frame_type: FrameType,
@@ -224,7 +226,7 @@ impl Header {
 
 
 /// MAC frame type
-#[derive(Clone, Copy, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FrameType {
     /// Beacon
     Beacon = 0b000,
@@ -256,7 +258,7 @@ impl FrameType {
 /// MAC header auxiliary security header
 ///
 /// Auxiliary security headers are currently unsupported.
-#[derive(Clone, Copy, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Security {
     /// No auxiliary security header present
     None = 0b0,
@@ -276,7 +278,7 @@ impl Security {
 /// PAN ID compression
 ///
 /// PAN ID compression is currently not supported.
-#[derive(Clone, Copy, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PanIdCompress {
     /// PAN ID compression is disabled
     Disabled = 0b0,
@@ -294,7 +296,7 @@ impl PanIdCompress {
 
 
 /// PAN ID and short address
-#[derive(Clone, Copy, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Address {
     /// The PAN ID
     pub pan_id: u16,
