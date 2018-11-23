@@ -25,11 +25,11 @@ pub struct Frame<'p> {
 
 impl<'p> Frame<'p> {
     /// Reads a frame from the buffer
-    pub fn read(buf: &'p [u8]) -> Result<Self, ReadError> {
-        let (header, len) = Header::read(buf)?;
+    pub fn decode(buf: &'p [u8]) -> Result<Self, DecodeError> {
+        let (header, len) = Header::decode(buf)?;
 
         if buf[len..].len() < 2 {
-            return Err(ReadError::NotAFrame);
+            return Err(DecodeError::NotAFrame);
         }
 
         let mut footer     = [0; 2];
@@ -52,11 +52,11 @@ impl<'p> Frame<'p> {
     /// # Panics
     ///
     /// Panics, if the buffer is not long enough to hold the frame.
-    pub fn write(&self, buf: &mut [u8], write_footer: WriteFooter) -> usize {
+    pub fn encode(&self, buf: &mut [u8], write_footer: WriteFooter) -> usize {
         let mut len = 0;
 
         // Write header
-        len += self.header.write(&mut buf[len..]);
+        len += self.header.encode(&mut buf[len..]);
 
         // Write payload
         buf[len .. len+self.payload.len()].copy_from_slice(self.payload);
@@ -124,10 +124,10 @@ pub struct Header {
 
 impl Header {
     /// Reads a header from the buffer
-    pub fn read(buf: &[u8]) -> Result<(Self, usize), ReadError> {
+    pub fn decode(buf: &[u8]) -> Result<(Self, usize), DecodeError> {
         // First, make sure we have enough buffer for the Frame Control field
         if buf.len() < 2 {
-            return Err(ReadError::NotAFrame);
+            return Err(DecodeError::NotAFrame);
         }
 
         let mut len = 0;
@@ -142,22 +142,22 @@ impl Header {
         let source_addr_mode = (buf[1] >> 6) & 0x3;
 
         let frame_type = FrameType::from_bits(frame_type)
-            .ok_or(ReadError::InvalidFrameType(frame_type))?;
+            .ok_or(DecodeError::InvalidFrameType(frame_type))?;
         let security = Security::from_bits(security)
-            .ok_or(ReadError::SecurityNotSupported)?;
+            .ok_or(DecodeError::SecurityNotSupported)?;
         let frame_pending = frame_pending == 0b1;
         let ack_request = ack_request == 0b1;
         let pan_id_compress = PanIdCompress::from_bits(pan_id_compress)
-            .ok_or(ReadError::PanIdCompressNotSupported)?;
+            .ok_or(DecodeError::PanIdCompressNotSupported)?;
 
         if dest_addr_mode != 0b10 {
-            return Err(ReadError::AddressModeNotSupported(dest_addr_mode));
+            return Err(DecodeError::AddressModeNotSupported(dest_addr_mode));
         }
         if frame_version != 0b01 {
-            return Err(ReadError::InvalidFrameVersion(frame_version));
+            return Err(DecodeError::InvalidFrameVersion(frame_version));
         }
         if source_addr_mode != 0b10 {
-            return Err(ReadError::AddressModeNotSupported(source_addr_mode));
+            return Err(DecodeError::AddressModeNotSupported(source_addr_mode));
         }
 
         len += 2;
@@ -165,10 +165,10 @@ impl Header {
         let seq = buf[len];
         len += 1;
 
-        let (destination, addr_len) = Address::read(&buf[len..])?;
+        let (destination, addr_len) = Address::decode(&buf[len..])?;
         len += addr_len;
 
-        let (source, addr_len) = Address::read(&buf[len..])?;
+        let (source, addr_len) = Address::decode(&buf[len..])?;
         len += addr_len;
 
         let header = Header {
@@ -195,7 +195,7 @@ impl Header {
     /// length depends on the options chosen and varies between 3 and 30 octets
     /// (although the current implementation will, as of this writing, always
     /// write 11 octets).
-    pub fn write(&self, buf: &mut [u8]) -> usize {
+    pub fn encode(&self, buf: &mut [u8]) -> usize {
         let frame_control =
             (self.frame_type      as u16) <<  0 |
             (self.security        as u16) <<  3 |
@@ -218,8 +218,8 @@ impl Header {
         len += size_of_val(&self.seq);
 
         // Write addresses
-        len += self.destination.write(&mut buf[len..]);
-        len += self.source.write(&mut buf[len..]);
+        len += self.destination.encode(&mut buf[len..]);
+        len += self.source.encode(&mut buf[len..]);
 
         len
     }
@@ -316,9 +316,9 @@ impl Address {
     }
 
     /// Reads an address from the buffer
-    pub fn read(buf: &[u8]) -> Result<(Self, usize), ReadError> {
+    pub fn decode(buf: &[u8]) -> Result<(Self, usize), DecodeError> {
         if buf.len() < 4 {
-            return Err(ReadError::NotAFrame);
+            return Err(DecodeError::NotAFrame);
         }
 
         let mut len = 0;
@@ -342,7 +342,7 @@ impl Address {
     /// # Panics
     ///
     /// Panics, if the buffer is less than 4 bytes long.
-    pub fn write(&self, buf: &mut [u8]) -> usize {
+    pub fn encode(&self, buf: &mut [u8]) -> usize {
         let mut len = 0;
 
         LittleEndian::write_u16(&mut buf[len..], self.pan_id);
@@ -358,7 +358,7 @@ impl Address {
 
 /// Signals an error that occured while reading a frame
 #[derive(Debug)]
-pub enum ReadError {
+pub enum DecodeError {
     /// Buffer does not contain a full frame
     NotAFrame,
 
