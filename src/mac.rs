@@ -7,6 +7,7 @@ use byteorder::{
     ByteOrder,
     LittleEndian,
 };
+use hash32_derive::Hash32;
 
 
 /// MAC frame

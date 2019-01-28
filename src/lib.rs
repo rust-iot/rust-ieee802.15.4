@@ -7,7 +7,4 @@
 #![no_std]
 
 
-#[macro_use] extern crate hash32_derive;
-
-
 pub mod mac;
