@@ -29,7 +29,7 @@ impl<'p> Frame<'p> {
         let (header, len) = Header::decode(buf)?;
 
         if buf[len..].len() < 2 {
-            return Err(DecodeError::NotAFrame);
+            return Err(DecodeError::NotEnoughBytes);
         }
 
         let mut footer     = [0; 2];
@@ -127,7 +127,7 @@ impl Header {
     pub fn decode(buf: &[u8]) -> Result<(Self, usize), DecodeError> {
         // First, make sure we have enough buffer for the Frame Control field
         if buf.len() < 2 {
-            return Err(DecodeError::NotAFrame);
+            return Err(DecodeError::NotEnoughBytes);
         }
 
         let mut len = 0;
@@ -318,7 +318,7 @@ impl Address {
     /// Reads an address from the buffer
     pub fn decode(buf: &[u8]) -> Result<(Self, usize), DecodeError> {
         if buf.len() < 4 {
-            return Err(DecodeError::NotAFrame);
+            return Err(DecodeError::NotEnoughBytes);
         }
 
         let mut len = 0;
@@ -360,7 +360,7 @@ impl Address {
 #[derive(Debug)]
 pub enum DecodeError {
     /// Buffer does not contain a full frame
-    NotAFrame,
+    NotEnoughBytes,
 
     /// The frame type is not recognized
     InvalidFrameType(u8),
