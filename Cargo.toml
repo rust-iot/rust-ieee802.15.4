@@ -4,6 +4,19 @@ version = "0.1.0"
 authors = ["Hanno Braun <hanno@braun-robotics.com>"]
 edition = "2018"
 
+description   = "Partial implementation of the IEEE 802.15.4 standard for low-rate wireless personal area networks"
+documentation = "https://docs.rs/ieee802154"
+repository    = "https://github.com/braun-robotics/ieee-802.15.4"
+license       = "0BSD"
+readme        = "README.md"
+categories    = ["embedded", "network-programming", "no-std"]
+keywords      = ["WPAN"]
+
+
+[badges]
+travis-ci   = { repository = "braun-robotics/ieee802154" }
+
+
 [dependencies]
 byteorder     = { version = "1", default-features = false }
 hash32        = "0.1"
