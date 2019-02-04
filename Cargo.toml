@@ -1,10 +1,31 @@
 [package]
 name    = "ieee802154"
-version = "0.1.0"
+version = "0.1.1-dev"
 authors = ["Hanno Braun <hanno@braun-robotics.com>"]
 edition = "2018"
+
+description   = "Partial implementation of the IEEE 802.15.4 standard for low-rate wireless personal area networks"
+documentation = "https://docs.rs/ieee802154"
+repository    = "https://github.com/braun-robotics/ieee-802.15.4"
+license       = "0BSD"
+readme        = "README.md"
+categories    = ["embedded", "network-programming", "no-std"]
+keywords      = ["WPAN"]
+
+
+[badges]
+travis-ci   = { repository = "braun-robotics/ieee802154" }
+
 
 [dependencies]
 byteorder     = { version = "1", default-features = false }
 hash32        = "0.1"
 hash32-derive = "0.1"
+
+
+[package.metadata.release]
+pre-release-commit-message = "Release version {{version}}"
+pro-release-commit-message = "Bump version to {{version}}"
+tag-prefix                 = "v"
+tag-message                = "Version {{version}}"
+dev-version-ext            = "dev"
