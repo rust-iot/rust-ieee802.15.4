@@ -58,7 +58,6 @@ impl<'p> Frame<'p> {
     ///     Address,
     ///     Frame,
     ///     FrameType,
-    ///     PanIdCompress,
     ///     Security,
     /// };
     ///
@@ -81,7 +80,7 @@ impl<'p> Frame<'p> {
     /// assert_eq!(frame.header.security,        Security::None);
     /// assert_eq!(frame.header.frame_pending,   false);
     /// assert_eq!(frame.header.ack_request,     false);
-    /// assert_eq!(frame.header.pan_id_compress, PanIdCompress::Disabled);
+    /// assert_eq!(frame.header.pan_id_compress, false);
     ///
     /// assert_eq!(
     ///     frame.header.destination,
@@ -136,7 +135,6 @@ impl<'p> Frame<'p> {
     ///     Frame,
     ///     FrameType,
     ///     Header,
-    ///     PanIdCompress,
     ///     Security,
     ///     WriteFooter,
     /// };
@@ -148,7 +146,7 @@ impl<'p> Frame<'p> {
     ///         security:        Security::None,
     ///         frame_pending:   false,
     ///         ack_request:     false,
-    ///         pan_id_compress: PanIdCompress::Disabled,
+    ///         pan_id_compress: false,
     ///
     ///         destination: Address { pan_id: 0x1234, short_addr: 0x5678 },
     ///         source:      Address { pan_id: 0x1234, short_addr: 0x9abc },
@@ -224,11 +222,7 @@ pub struct Header {
     pub ack_request: bool,
 
     /// PAN ID Compress
-    ///
-    /// This should eventually just be a `bool`, but as PAN ID compression is
-    /// not supported right now, we're using an enum here to suppress the
-    /// unsupported option.
-    pub pan_id_compress: PanIdCompress,
+    pub pan_id_compress: bool,
 
     /// Destination Address
     ///
@@ -265,7 +259,6 @@ impl Header {
     ///     Address,
     ///     FrameType,
     ///     Header,
-    ///     PanIdCompress,
     ///     Security,
     /// };
     ///
@@ -287,7 +280,7 @@ impl Header {
     /// assert_eq!(header.security,        Security::None);
     /// assert_eq!(header.frame_pending,   false);
     /// assert_eq!(header.ack_request,     false);
-    /// assert_eq!(header.pan_id_compress, PanIdCompress::Disabled);
+    /// assert_eq!(header.pan_id_compress, false);
     ///
     /// assert_eq!(
     ///     header.destination,
@@ -324,16 +317,19 @@ impl Header {
             .ok_or(DecodeError::SecurityNotSupported)?;
         let frame_pending = frame_pending == 0b1;
         let ack_request = ack_request == 0b1;
-        let pan_id_compress = PanIdCompress::from_bits(pan_id_compress)
-            .ok_or(DecodeError::PanIdCompressNotSupported)?;
+        let pan_id_compress = pan_id_compress == 0x01;
+        let dest_addr_mode = AddressMode::from_bits(dest_addr_mode)
+            .ok_or(DecodeError::InvalidAddressMode(dest_addr_mode))?;
+        let source_addr_mode = AddressMode::from_bits(source_addr_mode)
+            .ok_or(DecodeError::InvalidAddressMode(source_addr_mode))?;
 
-        if dest_addr_mode != 0b10 {
+        if dest_addr_mode != AddressMode::Short {
             return Err(DecodeError::AddressModeNotSupported(dest_addr_mode));
         }
-        if frame_version != 0b01 {
+        if frame_version > 0b01 {
             return Err(DecodeError::InvalidFrameVersion(frame_version));
         }
-        if source_addr_mode != 0b10 {
+        if source_addr_mode != AddressMode::Short {
             return Err(DecodeError::AddressModeNotSupported(source_addr_mode));
         }
 
@@ -345,8 +341,14 @@ impl Header {
         let (destination, addr_len) = Address::decode(&buf[len..])?;
         len += addr_len;
 
-        let (source, addr_len) = Address::decode(&buf[len..])?;
-        len += addr_len;
+        let source = if !pan_id_compress {
+            let (source, addr_len) = Address::decode(&buf[len..])?;
+            len += addr_len;
+            source
+        }
+        else {
+            destination
+        };
 
         let header = Header {
             frame_type,
@@ -383,7 +385,6 @@ impl Header {
     ///     Address,
     ///     FrameType,
     ///     Header,
-    ///     PanIdCompress,
     ///     Security,
     /// };
     ///
@@ -393,7 +394,7 @@ impl Header {
     ///     security:        Security::None,
     ///     frame_pending:   false,
     ///     ack_request:     false,
-    ///     pan_id_compress: PanIdCompress::Disabled,
+    ///     pan_id_compress: false,
     ///
     ///     destination: Address { pan_id: 0x1234, short_addr: 0x5678 },
     ///     source:      Address { pan_id: 0x1234, short_addr: 0x9abc },
@@ -519,39 +520,41 @@ impl Security {
     }
 }
 
-
-/// Defines whether PAN ID compression is enabled
-///
-/// Part of [`Header`]. PAN ID compression is currently not supported by this
-/// implementation.
+/// Defines the type of Address
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum PanIdCompress {
-    /// PAN ID compression is disabled
-    Disabled = 0b0,
+pub enum AddressMode {
+    /// PAN identifier and address field are not present
+    None = 0b00,
+    /// Address field contains a 16 bit short address
+    Short = 0x10,
+    /// Address field contains a 64 bit extended address
+    Extended = 0x11,
+
 }
 
-impl PanIdCompress {
-    /// Creates an instance of `PanIdCompress` from the provided bits
+impl AddressMode {
+    /// Creates an instance of [`AddressMode`] from the provided bits
     ///
     /// Returns `None`, if the provided bits don't encode a valid value of
-    /// `PanIdCompress`.
+    /// `Security`.
     ///
     /// # Example
     ///
     /// ``` rust
-    /// use ieee802154::mac::PanIdCompress;
+    /// use ieee802154::mac::AddressMode;
     ///
-    /// let pan_id_compress = PanIdCompress::from_bits(0b0);
-    /// assert_eq!(pan_id_compress, Some(PanIdCompress::Disabled));
+    /// let address_mode = AddressMode::from_bits(0b0);
+    /// assert_eq!(address_mode, Some(AddressMode::None));
     /// ```
     pub fn from_bits(bits: u8) -> Option<Self> {
         match bits {
-            0b0 => Some(PanIdCompress::Disabled),
+            0b00 => Some(AddressMode::None),
+            0b10 => Some(AddressMode::Short),
+            0b11 => Some(AddressMode::Extended),
             _   => None,
         }
     }
 }
-
 
 /// An address consisting of PAN ID and short address
 ///
@@ -672,12 +675,40 @@ pub enum DecodeError {
     /// The frame has the security bit set, which is not supported
     SecurityNotSupported,
 
-    /// The frame compresses the PAN ID, which is not supported
-    PanIdCompressNotSupported,
+    /// The frame's address mode is invalid
+    InvalidAddressMode(u8),
 
     /// The frame's address mode is not supported
-    AddressModeNotSupported(u8),
+    AddressModeNotSupported(AddressMode),
 
     /// The frame's version is invalid or not supported
     InvalidFrameVersion(u8),
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn decode_ver0_pan_id_compression() {
+        let data = [
+            0x41, 0x88, 0x91, 0x8f, 0x20, 0xff, 0xff, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+        let frame = Frame::decode(&data).unwrap();
+        assert_eq!(frame.header.frame_type, FrameType::Data);
+        assert_eq!(frame.header.security, Security::None);
+        assert_eq!(frame.header.frame_pending, false);
+        assert_eq!(frame.header.ack_request, false);
+        assert_eq!(frame.header.pan_id_compress, true);
+        assert_eq!(frame.header.seq, 145);
+        assert_eq!(frame.header.destination.pan_id, 0x208f);
+        assert_eq!(frame.header.destination.short_addr, 0xffff);
+        assert_eq!(frame.header.source.pan_id, 0x208f);
+        assert_eq!(frame.header.source.short_addr, 0xffff);
+    }
 }
