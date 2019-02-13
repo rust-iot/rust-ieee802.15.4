@@ -343,7 +343,7 @@ impl Header {
             source
         }
         else {
-            destination
+            Address::None
         };
 
         let header = Header {
@@ -812,6 +812,6 @@ mod tests {
         assert_eq!(frame.header.pan_id_compress, true);
         assert_eq!(frame.header.seq, 145);
         assert_eq!(frame.header.destination, Address::Short(ShortAddress { pan_id: 0x208f, addr: 0xffff } ));
-        assert_eq!(frame.header.source, Address::Short(ShortAddress { pan_id: 0x208f, addr: 0xffff } ));
+        assert_eq!(frame.header.source, Address::None);
     }
 }
