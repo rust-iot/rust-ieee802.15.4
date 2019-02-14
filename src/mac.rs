@@ -457,7 +457,7 @@ pub enum FrameType {
     Acknowledgement = 0b010,
 
     /// MAC command
-    Command = 0b011,
+    MacCommand = 0b011,
 }
 
 impl FrameType {
@@ -478,7 +478,7 @@ impl FrameType {
             0b000 => Some(FrameType::Beacon),
             0b001 => Some(FrameType::Data),
             0b010 => Some(FrameType::Acknowledgement),
-            0b011 => Some(FrameType::Command),
+            0b011 => Some(FrameType::MacCommand),
             _     => None,
         }
     }
