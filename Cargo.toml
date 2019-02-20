@@ -21,11 +21,3 @@ travis-ci   = { repository = "braun-robotics/ieee802154" }
 byteorder     = { version = "1", default-features = false }
 hash32        = "0.1"
 hash32-derive = "0.1"
-
-
-[package.metadata.release]
-pre-release-commit-message = "Release version {{version}}"
-pro-release-commit-message = "Bump version to {{version}}"
-tag-prefix                 = "v"
-tag-message                = "Version {{version}}"
-dev-version-ext            = "dev"
