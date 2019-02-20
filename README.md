@@ -1,4 +1,4 @@
-# IEEE 802.15.4 [![crates.io](https://img.shields.io/crates/v/ieee802154.svg)](https://crates.io/crates/ieee802154) [![Documentation](https://docs.rs/ieee802154/badge.svg)](https://docs.rs/ieee802154) [![Build Status](https://travis-ci.com/braun-robotics/ieee-802.15.4.svg?branch=master)](https://travis-ci.com/braun-robotics/ieee-802.15.4)
+# IEEE 802.15.4 [![crates.io](https://img.shields.io/crates/v/ieee802154.svg)](https://crates.io/crates/ieee802154) [![Documentation](https://docs.rs/ieee802154/badge.svg)](https://docs.rs/ieee802154) [![Build Status](https://travis-ci.com/braun-robotics/rust-ieee802.15.4.svg?branch=master)](https://travis-ci.com/braun-robotics/rust-ieee802.15.4)
 
 ## Introduction
 
