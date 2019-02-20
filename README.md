@@ -18,7 +18,7 @@ ieee802154 = "0.1.0"
 
 For more information, please refer to the [API Reference].
 
-[API Reference](https://docs.rs/ieee802154)
+[API Reference]: https://docs.rs/ieee802154
 
 
 ## License
