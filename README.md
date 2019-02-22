@@ -1,4 +1,4 @@
-# IEEE 802.15.4 [![crates.io](https://img.shields.io/crates/v/ieee802154.svg)](https://crates.io/crates/ieee802154) [![Documentation](https://docs.rs/ieee802154/badge.svg)](https://docs.rs/ieee802154) [![Build Status](https://travis-ci.com/braun-robotics/ieee-802.15.4.svg?branch=master)](https://travis-ci.com/braun-robotics/ieee-802.15.4)
+# Rust IEEE 802.15.4 [![crates.io](https://img.shields.io/crates/v/ieee802154.svg)](https://crates.io/crates/ieee802154) [![Documentation](https://docs.rs/ieee802154/badge.svg)](https://docs.rs/ieee802154) [![Build Status](https://travis-ci.com/braun-robotics/rust-ieee802.15.4.svg?branch=master)](https://travis-ci.com/braun-robotics/rust-ieee802.15.4)
 
 ## Introduction
 
@@ -13,12 +13,12 @@ Partial [Rust] implementation of the [IEEE 802.15.4] standard, which defines the
 Use Cargo to add this library as a dependency to your project. Add the following to you `Cargo.toml`:
 ``` toml
 [dependencies]
-ieee802154 = "0.1.0"
+ieee802154 = "0.1"
 ```
 
 For more information, please refer to the [API Reference].
 
-[API Reference](https://docs.rs/ieee802154)
+[API Reference]: https://docs.rs/ieee802154
 
 
 ## License
