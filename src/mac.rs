@@ -797,13 +797,7 @@ mod tests {
 
     #[test]
     fn decode_ver0_pan_id_compression() {
-        let data = [
-            0x41, 0x88, 0x91, 0x8f, 0x20, 0xff, 0xff, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+        let data = [0x41, 0x88, 0x91, 0x8f, 0x20, 0xff, 0xff, 0x00, 0x00];
         let frame = Frame::decode(&data).unwrap();
         assert_eq!(frame.header.frame_type, FrameType::Data);
         assert_eq!(frame.header.security, Security::None);
@@ -811,7 +805,32 @@ mod tests {
         assert_eq!(frame.header.ack_request, false);
         assert_eq!(frame.header.pan_id_compress, true);
         assert_eq!(frame.header.seq, 145);
-        assert_eq!(frame.header.destination, Address::Short(ShortAddress { pan_id: 0x208f, addr: 0xffff } ));
+        assert_eq!(
+            frame.header.destination,
+            Address::Short(ShortAddress { pan_id: 0x208f, addr: 0xffff } )
+        );
         assert_eq!(frame.header.source, Address::None);
+    }
+
+    #[test]
+    fn decode_ver0_extended() {
+        let data = [0x21, 0xc8, 0x8b, 0xff, 0xff, 0x02, 0x00, 0x23,
+                    0x00, 0x60, 0xe2, 0x16, 0x21, 0x1c, 0x4a, 0xc2,
+                    0xae, 0xaa, 0xbb, 0xcc];
+        let frame = Frame::decode(&data).unwrap();
+        assert_eq!(frame.header.frame_type, FrameType::Data);
+        assert_eq!(frame.header.security, Security::None);
+        assert_eq!(frame.header.frame_pending, false);
+        assert_eq!(frame.header.ack_request, true);
+        assert_eq!(frame.header.pan_id_compress, false);
+        assert_eq!(frame.header.seq, 139);
+        assert_eq!(
+            frame.header.destination,
+            Address::Short(ShortAddress { pan_id: 0xffff, addr: 0x0002 } )
+        );
+        assert_eq!(
+            frame.header.source,
+            Address::Extended(ExtendedAddress{pan_id: 0x0023, addr: 0xaec24a1c2116e260})
+        );
     }
 }
