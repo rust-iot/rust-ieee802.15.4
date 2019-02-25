@@ -59,6 +59,7 @@ impl<'p> Frame<'p> {
     ///     ShortAddress,
     ///     Frame,
     ///     FrameType,
+    ///     PanId,
     ///     Security,
     /// };
     ///
@@ -85,11 +86,11 @@ impl<'p> Frame<'p> {
     ///
     /// assert_eq!(
     ///     frame.header.destination,
-    ///     Address::Short(ShortAddress { pan_id: 0x3412, addr: 0x7856 })
+    ///     Address::Short(PanId(0x3412), ShortAddress(0x7856))
     /// );
     /// assert_eq!(
     ///     frame.header.source,
-    ///     Address::Short(ShortAddress { pan_id: 0x3412, addr: 0xbc9a })
+    ///     Address::Short(PanId(0x3412), ShortAddress(0xbc9a))
     /// );
     ///
     /// assert_eq!(frame.payload, &[0xde, 0xf0]);
@@ -137,6 +138,7 @@ impl<'p> Frame<'p> {
     ///     Frame,
     ///     FrameType,
     ///     Header,
+    ///     PanId,
     ///     Security,
     ///     WriteFooter,
     /// };
@@ -150,8 +152,8 @@ impl<'p> Frame<'p> {
     ///         ack_request:     false,
     ///         pan_id_compress: false,
     ///
-    ///         destination: Address::Short(ShortAddress { pan_id: 0x1234, addr: 0x5678 }),
-    ///         source:      Address::Short(ShortAddress { pan_id: 0x1234, addr: 0x9abc }),
+    ///         destination: Address::Short(PanId(0x1234), ShortAddress(0x5678)),
+    ///         source:      Address::Short(PanId(0x1234), ShortAddress(0x9abc)),
     ///     },
     ///
     ///     payload: &[0xde, 0xf0],
@@ -262,6 +264,7 @@ impl Header {
     ///     ShortAddress,
     ///     FrameType,
     ///     Header,
+    ///     PanId,
     ///     Security,
     /// };
     ///
@@ -287,11 +290,11 @@ impl Header {
     ///
     /// assert_eq!(
     ///     header.destination,
-    ///     Address::Short(ShortAddress { pan_id: 0x3412, addr: 0x7856 })
+    ///     Address::Short(PanId(0x3412), ShortAddress(0x7856))
     /// );
     /// assert_eq!(
     ///     header.source,
-    ///     Address::Short(ShortAddress { pan_id: 0x3412, addr: 0xbc9a })
+    ///     Address::Short(PanId(0x3412), ShortAddress(0xbc9a))
     /// );
     /// #
     /// # Ok(())
@@ -343,7 +346,10 @@ impl Header {
             source
         }
         else {
-            Address::None
+            let (source, addr_len) = Address::decode_compress(&buf[len..],
+                &source_addr_mode, destination.pan_id().unwrap().clone())?;
+            len += addr_len;
+            source
         };
 
         let header = Header {
@@ -382,6 +388,7 @@ impl Header {
     ///     ShortAddress,
     ///     FrameType,
     ///     Header,
+    ///     PanId,
     ///     Security,
     /// };
     ///
@@ -393,8 +400,8 @@ impl Header {
     ///     ack_request:     false,
     ///     pan_id_compress: false,
     ///
-    ///     destination: Address::Short(ShortAddress { pan_id: 0x1234, addr: 0x5678 }),
-    ///     source:      Address::Short(ShortAddress { pan_id: 0x1234, addr: 0x9abc }),
+    ///     destination: Address::Short(PanId(0x1234), ShortAddress(0x5678)),
+    ///     source:      Address::Short(PanId(0x1234), ShortAddress(0x9abc)),
     /// };
     ///
     /// let mut bytes = [0u8; 11];
@@ -557,23 +564,89 @@ impl AddressMode {
     }
 }
 
+
+/// Personal Area Network Identifier
+#[derive(Clone, Copy, Debug, Eq, Hash, Hash32, PartialEq)]
+pub struct PanId(pub u16);
+
+impl PanId {
+    /// Get the broadcast PAN identifier
+    pub fn broadcast() -> Self {
+        Self(0xffff)
+    }
+
+    /// Decodes an PAN identifier from a byte buffer
+    ///
+    /// # Errors
+    ///
+    /// This function returns an error, if there are not enough bytes in the
+    /// buffer to encode a valid `Address` instance.
+    ///
+    /// # Example
+    ///
+    /// ``` rust
+    /// use ieee802154::mac::PanId;
+    ///
+    /// # fn main() -> Result<(), ::ieee802154::mac::DecodeError> {
+    /// let bytes = [0x56, 0x78];
+    /// let (address, num_bytes) = PanId::decode(&bytes)?;
+    ///
+    /// assert_eq!(num_bytes, bytes.len());
+    /// assert_eq!(address.0, 0x7856);
+    /// #
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn decode(buf: &[u8]) -> Result<(Self, usize), DecodeError> {
+        if buf.len() < 2 {
+            return Err(DecodeError::NotEnoughBytes);
+        }
+
+        let pan_id = LittleEndian::read_u16(buf);
+        let len = size_of_val(&pan_id);
+
+        Ok((PanId(pan_id), len))
+    }
+
+    /// Encodes the PAN identifier into a buffer
+    ///
+    /// Returns the number of bytes written to the buffer.
+    ///
+    /// # Panics
+    ///
+    /// Panics, if the buffer is less than 2 bytes long. If you believe that
+    /// this behavior is inappropriate, please leave your feedback on the
+    /// [issue tracker].
+    ///
+    /// # Example
+    ///
+    /// ``` rust
+    /// use ieee802154::mac::PanId;
+    ///
+    /// let address = PanId(0x1234);
+    ///
+    /// let mut bytes = [0u8; 2];
+    /// address.encode(&mut bytes);
+    ///
+    /// let expected_bytes = [0x34, 0x12];
+    /// assert_eq!(bytes[..expected_bytes.len()], expected_bytes[..]);
+    /// ```
+    ///
+    /// [issue tracker]: https://github.com/braun-robotics/ieee-802.15.4/issues/9
+    pub fn encode(&self, buf: &mut [u8]) -> usize {
+        LittleEndian::write_u16(buf, self.0);
+        size_of_val(&self.0)
+    }
+}
+
 /// An address consisting of PAN ID and short address
 #[derive(Clone, Copy, Debug, Eq, Hash, Hash32, PartialEq)]
-pub struct ShortAddress {
-    /// PAN ID
-    pub pan_id: u16,
-
-    /// 16-bit short address
-    pub addr: u16,
-}
+pub struct ShortAddress(pub u16);
 
 impl ShortAddress {
     /// Creates an instance of `Address` that presents the broadcast address
     pub fn broadcast() -> Self {
-        ShortAddress {
-            pan_id: 0xffff,
-            addr:   0xffff,
-        }
+        ShortAddress(0xffff)
     }
 
     /// Decodes an address from a byte buffer
@@ -593,34 +666,23 @@ impl ShortAddress {
     /// use ieee802154::mac::ShortAddress;
     ///
     /// # fn main() -> Result<(), ::ieee802154::mac::DecodeError> {
-    /// let bytes = [0x12, 0x34, 0x56, 0x78];
+    /// let bytes = [0x56, 0x78];
     /// let (address, num_bytes) = ShortAddress::decode(&bytes)?;
     ///
     /// assert_eq!(num_bytes, bytes.len());
-    /// assert_eq!(address, ShortAddress { pan_id: 0x3412, addr: 0x7856 });
+    /// assert_eq!(address, ShortAddress(0x7856));
     /// #
     /// # Ok(())
     /// # }
     /// ```
     pub fn decode(buf: &[u8]) -> Result<(Self, usize), DecodeError> {
-        if buf.len() < 4 {
+        if buf.len() < 2 {
             return Err(DecodeError::NotEnoughBytes);
         }
 
-        let mut len = 0;
+        let addr = LittleEndian::read_u16(&buf);
 
-        let pan_id = LittleEndian::read_u16(&buf[len..]);
-        len += size_of_val(&pan_id);
-
-        let addr = LittleEndian::read_u16(&buf[len..]);
-        len += size_of_val(&addr);
-
-        let address = ShortAddress {
-            pan_id,
-            addr,
-        };
-
-        Ok((address, len))
+        Ok((ShortAddress(addr), size_of_val(&addr)))
     }
 
     /// Encodes the address into a buffer
@@ -629,7 +691,7 @@ impl ShortAddress {
     ///
     /// # Panics
     ///
-    /// Panics, if the buffer is less than 4 bytes long. If you believe that
+    /// Panics, if the buffer is less than 2 bytes long. If you believe that
     /// this behavior is inappropriate, please leave your feedback on the
     /// [issue tracker].
     ///
@@ -638,81 +700,45 @@ impl ShortAddress {
     /// ``` rust
     /// use ieee802154::mac::ShortAddress;
     ///
-    /// let address = ShortAddress { pan_id: 0x1234, addr: 0x5678 };
+    /// let address = ShortAddress(0x5678);
     ///
-    /// let mut bytes = [0u8; 4];
+    /// let mut bytes = [0u8; 2];
     /// address.encode(&mut bytes);
     ///
-    /// let expected_bytes = [0x34, 0x12, 0x78, 0x56];
+    /// let expected_bytes = [0x78, 0x56];
     /// assert_eq!(bytes[..expected_bytes.len()], expected_bytes[..]);
     /// ```
     ///
     /// [issue tracker]: https://github.com/braun-robotics/ieee-802.15.4/issues/9
     pub fn encode(&self, buf: &mut [u8]) -> usize {
-        let mut len = 0;
-
-        LittleEndian::write_u16(&mut buf[len..], self.pan_id);
-        len += size_of_val(&self.pan_id);
-
-        LittleEndian::write_u16(&mut buf[len..], self.addr);
-        len += size_of_val(&self.addr);
-
-        len
+        LittleEndian::write_u16(buf, self.0);
+        size_of_val(&self.0)
     }
 }
 
 /// An address consisting of PAN ID and extended address
 #[derive(Clone, Copy, Debug, Eq, Hash, Hash32, PartialEq)]
-pub struct ExtendedAddress {
-    /// PAN ID
-    pub pan_id: u16,
-
-    /// 64-bit extended address
-    pub addr: u64,
-}
+pub struct ExtendedAddress(pub u64);
 
 impl ExtendedAddress {
     /// Creates an instance of `Address` that presents the broadcast address
     pub fn broadcast() -> Self {
-        ExtendedAddress {
-            pan_id: 0xffff,
-            addr:   0xffffffffffffffffu64,
-        }
+        ExtendedAddress(0xffffffffffffffffu64)
     }
 
     /// Decodes an address from a byte buffer
     pub fn decode(buf: &[u8]) -> Result<(Self, usize), DecodeError> {
-        if buf.len() < 10 {
+        if buf.len() < 8 {
             return Err(DecodeError::NotEnoughBytes);
         }
-
-        let mut len = 0;
-
-        let pan_id = LittleEndian::read_u16(&buf[len..]);
-        len += size_of_val(&pan_id);
-
-        let addr = LittleEndian::read_u64(&buf[len..]);
-        len += size_of_val(&addr);
-
-        let address = ExtendedAddress {
-            pan_id,
-            addr,
-        };
-
-        Ok((address, len))
+        let addr = LittleEndian::read_u64(&buf);
+        Ok((ExtendedAddress(addr), size_of_val(&addr)))
     }
 
     /// Encodes the address into a buffer
     pub fn encode(&self, buf: &mut [u8]) -> usize {
-        let mut len = 0;
-
-        LittleEndian::write_u16(&mut buf[len..], self.pan_id);
-        len += size_of_val(&self.pan_id);
-
-        LittleEndian::write_u64(&mut buf[len..], self.addr);
-        len += size_of_val(&self.addr);
-
-        len
+        LittleEndian::write_u64(buf, self.0);
+        size_of_val(&self.0)
     }
 }
 
@@ -722,9 +748,9 @@ pub enum Address {
     /// No address
     None,
     /// Short (16-bit) address and PAN ID (16-bit)
-    Short(ShortAddress),
+    Short(PanId, ShortAddress),
     /// Extended (64-bit) address and PAN ID (16-bit)
-    Extended(ExtendedAddress),
+    Extended(PanId, ExtendedAddress),
 }
 
 
@@ -733,9 +759,9 @@ impl Address {
     pub fn broadcast(mode: &AddressMode) -> Self {
         match mode {
             AddressMode::None => Address::None,
-            AddressMode::Short => Address::Short(ShortAddress::broadcast()),
+            AddressMode::Short => Address::Short(PanId::broadcast(), ShortAddress::broadcast()),
             AddressMode::Extended =>
-                Address::Extended(ExtendedAddress::broadcast()),
+                Address::Extended(PanId::broadcast(), ExtendedAddress::broadcast()),
         }
     }
 
@@ -746,12 +772,39 @@ impl Address {
         let (address, len) = match mode {
             AddressMode::None => (Address::None, 0),
             AddressMode::Short => {
+                let mut length = 0;
+                let (i, l) = PanId::decode(buf)?;
+                length += l;
+                let (a, l) = ShortAddress::decode(&buf[l..])?;
+                length += l;
+                (Address::Short(i, a), length)
+            }
+            AddressMode::Extended => {
+                let mut length = 0;
+                let (i, l) = PanId::decode(buf)?;
+                length += l;
+                let (a, l) = ExtendedAddress::decode(&buf[l..])?;
+                length += l;
+                (Address::Extended(i, a), length)
+
+            }
+        };
+        Ok((address, len))
+    }
+
+    /// Decodes an address from a byte buffer
+    pub fn decode_compress(buf: &[u8], mode: &AddressMode, pan_id: PanId)
+        -> Result<(Self, usize), DecodeError>
+    {
+        let (address, len) = match mode {
+            AddressMode::None => (Address::None, 0),
+            AddressMode::Short => {
                 let (a, l) = ShortAddress::decode(buf)?;
-                (Address::Short(a), l)
+                (Address::Short(pan_id, a), l)
             }
             AddressMode::Extended => {
                 let (a, l) = ExtendedAddress::decode(buf)?;
-                (Address::Extended(a), l)
+                (Address::Extended(pan_id, a), l)
 
             }
         };
@@ -762,8 +815,26 @@ impl Address {
     pub fn encode(&self, buf: &mut [u8]) -> usize {
         match *self {
             Address::None => 0,
-            Address::Short(a) => a.encode(buf),
-            Address::Extended(a) => a.encode(buf),
+            Address::Short(i, a) => {
+                let pan_id_size = i.encode(buf);
+                let address_size = a.encode(&mut buf[pan_id_size..]);
+                pan_id_size + address_size
+            }
+            Address::Extended(i, a) => {
+                let pan_id_size = i.encode(buf);
+                let address_size = a.encode(&mut buf[pan_id_size..]);
+                pan_id_size + address_size
+            }
+        }
+    }
+
+    /// Decodes an address from a byte buffer
+    pub fn pan_id(&self) -> Option<PanId>
+    {
+        match *self {
+            Address::None => None,
+            Address::Short(pan_id, _) => Some(pan_id),
+            Address::Extended(pan_id, _) => Some(pan_id),
         }
     }
 }
@@ -798,8 +869,8 @@ mod tests {
     #[test]
     fn decode_ver0_pan_id_compression() {
         let data = [
-            0x41, 0x88, 0x91, 0x8f, 0x20, 0xff, 0xff, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x41, 0x88, 0x91, 0x8f, 0x20, 0xff, 0xff, 0x33,
+            0x44, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -811,7 +882,7 @@ mod tests {
         assert_eq!(frame.header.ack_request, false);
         assert_eq!(frame.header.pan_id_compress, true);
         assert_eq!(frame.header.seq, 145);
-        assert_eq!(frame.header.destination, Address::Short(ShortAddress { pan_id: 0x208f, addr: 0xffff } ));
-        assert_eq!(frame.header.source, Address::None);
+        assert_eq!(frame.header.destination, Address::Short(PanId(0x208f), ShortAddress(0xffff)));
+        assert_eq!(frame.header.source, Address::Short(PanId(0x208f), ShortAddress(0x4433)));
     }
 }
