@@ -137,6 +137,7 @@ impl<'p> Frame<'p> {
     ///     ShortAddress,
     ///     Frame,
     ///     FrameType,
+    ///     FrameVersion,
     ///     Header,
     ///     PanId,
     ///     Security,
@@ -151,6 +152,7 @@ impl<'p> Frame<'p> {
     ///         frame_pending:   false,
     ///         ack_request:     false,
     ///         pan_id_compress: false,
+    ///         version:         FrameVersion::Ieee802154_2006,
     ///
     ///         destination: Address::Short(PanId(0x1234), ShortAddress(0x5678)),
     ///         source:      Address::Short(PanId(0x1234), ShortAddress(0x9abc)),
@@ -195,7 +197,6 @@ impl<'p> Frame<'p> {
     }
 }
 
-
 /// Tells [`Frame::encode`] whether to write the footer
 ///
 /// Eventually, this should support three options:
@@ -208,7 +209,6 @@ pub enum WriteFooter {
     /// Don't write the footer
     No,
 }
-
 
 /// MAC frame header
 #[derive(Debug)]
@@ -228,14 +228,13 @@ pub struct Header {
     /// PAN ID Compress
     pub pan_id_compress: bool,
 
+    /// Frame version
+    pub version: FrameVersion,
+
     /// Destination Address
-    ///
-    /// Currently only PAN ID and short address format is supported.
     pub destination: Address,
 
     /// Source Address
-    ///
-    /// Currently only PAN ID and short address format is supported.
     pub source: Address,
 
     /// Sequence Number
@@ -330,24 +329,26 @@ impl Header {
         if frame_version > 0b01 {
             return Err(DecodeError::InvalidFrameVersion(frame_version));
         }
+        let version = FrameVersion::from_bits(frame_version)
+            .ok_or(DecodeError::InvalidFrameVersion(frame_version))?;
         len += 2;
 
         let seq = buf[len];
         len += 1;
 
-        let (destination, addr_len) = Address::decode(&buf[len..],
-            &dest_addr_mode)?;
+        let (destination, addr_len) = Address::decode(&buf[len..], &dest_addr_mode)?;
         len += addr_len;
 
         let source = if !pan_id_compress {
-            let (source, addr_len) = Address::decode(&buf[len..],
-                &source_addr_mode)?;
+            let (source, addr_len) = Address::decode(&buf[len..], &source_addr_mode)?;
             len += addr_len;
             source
-        }
-        else {
-            let (source, addr_len) = Address::decode_compress(&buf[len..],
-                &source_addr_mode, destination.pan_id().unwrap().clone())?;
+        } else {
+            let (source, addr_len) = Address::decode_compress(
+                &buf[len..],
+                &source_addr_mode,
+                destination.pan_id().unwrap().clone(),
+            )?;
             len += addr_len;
             source
         };
@@ -358,9 +359,10 @@ impl Header {
             frame_pending,
             ack_request,
             pan_id_compress,
-            seq,
+            version,
             destination,
             source,
+            seq,
         };
 
         Ok((header, len))
@@ -375,7 +377,7 @@ impl Header {
     /// Panics, if the buffer is not long enough to hold the header. If you
     /// believe that this behavior is inappropriate, please leave your feedback
     /// on the [issue tracker].
-    /// 
+    ///
     /// The header length depends on the options chosen and varies between 3 and
     /// 30 octets (although the current implementation will, as of this writing,
     /// always write 11 octets).
@@ -387,6 +389,7 @@ impl Header {
     ///     Address,
     ///     ShortAddress,
     ///     FrameType,
+    ///     FrameVersion,
     ///     Header,
     ///     PanId,
     ///     Security,
@@ -399,6 +402,7 @@ impl Header {
     ///     frame_pending:   false,
     ///     ack_request:     false,
     ///     pan_id_compress: false,
+    ///     version:         FrameVersion::Ieee802154_2006,
     ///
     ///     destination: Address::Short(PanId(0x1234), ShortAddress(0x5678)),
     ///     source:      Address::Short(PanId(0x1234), ShortAddress(0x9abc)),
@@ -419,16 +423,14 @@ impl Header {
     ///
     /// [issue tracker]: https://github.com/braun-robotics/ieee-802.15.4/issues/9
     pub fn encode(&self, buf: &mut [u8]) -> usize {
-        let frame_control =
-            (self.frame_type      as u16) <<  0 |
-            (self.security        as u16) <<  3 |
-            (self.frame_pending   as u16) <<  4 |
-            (self.ack_request     as u16) <<  5 |
-            (self.pan_id_compress as u16) <<  6 |
-
-            0b10 << 10 | // Destination Address Mode (short address)
-            0b01 << 12 | // Frame Version
-            0b10 << 14;  // Source Address Mode (short address)
+        let frame_control = (self.frame_type as u16) << 0
+            | (self.security as u16) << 3
+            | (self.frame_pending as u16) << 4
+            | (self.ack_request as u16) << 5
+            | (self.pan_id_compress as u16) << 6
+            | (self.destination.address_mode() as u16) << 10
+            | (self.version as u16) << 12
+            | (self.source.address_mode() as u16) << 14;
 
         let mut len = 0;
 
@@ -442,12 +444,16 @@ impl Header {
 
         // Write addresses
         len += self.destination.encode(&mut buf[len..]);
-        len += self.source.encode(&mut buf[len..]);
+        len += if self.pan_id_compress {
+            assert_eq!(self.destination.pan_id(), self.source.pan_id());
+            self.source.encode_compress(&mut buf[len..])
+        } else {
+            self.source.encode(&mut buf[len..])
+        };
 
         len
     }
 }
-
 
 /// Defines the type of a MAC frame
 ///
@@ -519,7 +525,42 @@ impl Security {
     pub fn from_bits(bits: u8) -> Option<Self> {
         match bits {
             0b0 => Some(Security::None),
-            _   => None,
+            _ => None,
+        }
+    }
+}
+
+/// Defines version information for a frame
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FrameVersion {
+    /// A frame conforming to the 802.15.4-2003 standard
+    Ieee802154_2003 = 0b00,
+    /// A frame conforming to the 802.15.4-2006 standard
+    Ieee802154_2006 = 0b01,
+    /// A frame conforming to the current 802.15.4 standard
+    Ieee802154 = 0b10,
+}
+
+impl FrameVersion {
+    /// Creates an instance of [`FrameVersion`] from the provided bits
+    ///
+    /// Returns `None`, if the provided bits don't encode a valid value of
+    /// `FrameVersion`.
+    ///
+    /// # Example
+    ///
+    /// ``` rust
+    /// use ieee802154::mac::FrameVersion;
+    ///
+    /// let version = FrameVersion::from_bits(0b0);
+    /// assert_eq!(version, Some(FrameVersion::Ieee802154_2003));
+    /// ```
+    pub fn from_bits(bits: u8) -> Option<Self> {
+        match bits {
+            0b00 => Some(FrameVersion::Ieee802154_2003),
+            0b01 => Some(FrameVersion::Ieee802154_2006),
+            0b10 => Some(FrameVersion::Ieee802154),
+            _ => None,
         }
     }
 }
@@ -530,42 +571,38 @@ pub enum AddressMode {
     /// PAN identifier and address field are not present
     None = 0b00,
     /// Address field contains a 16 bit short address
-    Short = 0x10,
+    Short = 0b10,
     /// Address field contains a 64 bit extended address
-    Extended = 0x11,
-
+    Extended = 0b11,
 }
 
 impl AddressMode {
     /// Creates an instance of [`AddressMode`] from the provided bits
     ///
     /// Returns `None`, if the provided bits don't encode a valid value of
-    /// `Security`.
+    /// `AddressMode`.
     ///
     /// # Example
     ///
     /// ``` rust
     /// use ieee802154::mac::AddressMode;
     ///
-    /// let address_mode = AddressMode::from_bits(0b0).unwrap();
-    /// assert_eq!(address_mode, AddressMode::None);
     /// let address_mode = AddressMode::from_bits(0b10).unwrap();
     /// assert_eq!(address_mode, AddressMode::Short);
-    /// let address_mode = AddressMode::from_bits(0b11).unwrap();
-    /// assert_eq!(address_mode, AddressMode::Extended);
     /// ```
-    pub fn from_bits(bits: u8) -> Result<Self, DecodeError>  {
+    pub fn from_bits(bits: u8) -> Result<Self, DecodeError> {
         match bits {
             0b00 => Ok(AddressMode::None),
             0b10 => Ok(AddressMode::Short),
             0b11 => Ok(AddressMode::Extended),
-            _   => Err(DecodeError::InvalidAddressMode(bits)),
+            _ => Err(DecodeError::InvalidAddressMode(bits)),
         }
     }
 }
 
-
 /// Personal Area Network Identifier
+///
+/// A 16-bit identifier for devices in a PAN
 #[derive(Clone, Copy, Debug, Eq, Hash, Hash32, PartialEq)]
 pub struct PanId(pub u16);
 
@@ -753,22 +790,20 @@ pub enum Address {
     Extended(PanId, ExtendedAddress),
 }
 
-
 impl Address {
     /// Creates an instance of `Address` that presents the broadcast address
     pub fn broadcast(mode: &AddressMode) -> Self {
         match mode {
             AddressMode::None => Address::None,
             AddressMode::Short => Address::Short(PanId::broadcast(), ShortAddress::broadcast()),
-            AddressMode::Extended =>
-                Address::Extended(PanId::broadcast(), ExtendedAddress::broadcast()),
+            AddressMode::Extended => {
+                Address::Extended(PanId::broadcast(), ExtendedAddress::broadcast())
+            }
         }
     }
 
     /// Decodes an address from a byte buffer
-    pub fn decode(buf: &[u8], mode: &AddressMode)
-        -> Result<(Self, usize), DecodeError>
-    {
+    pub fn decode(buf: &[u8], mode: &AddressMode) -> Result<(Self, usize), DecodeError> {
         let (address, len) = match mode {
             AddressMode::None => (Address::None, 0),
             AddressMode::Short => {
@@ -786,16 +821,17 @@ impl Address {
                 let (a, l) = ExtendedAddress::decode(&buf[l..])?;
                 length += l;
                 (Address::Extended(i, a), length)
-
             }
         };
         Ok((address, len))
     }
 
     /// Decodes an address from a byte buffer
-    pub fn decode_compress(buf: &[u8], mode: &AddressMode, pan_id: PanId)
-        -> Result<(Self, usize), DecodeError>
-    {
+    pub fn decode_compress(
+        buf: &[u8],
+        mode: &AddressMode,
+        pan_id: PanId,
+    ) -> Result<(Self, usize), DecodeError> {
         let (address, len) = match mode {
             AddressMode::None => (Address::None, 0),
             AddressMode::Short => {
@@ -805,7 +841,6 @@ impl Address {
             AddressMode::Extended => {
                 let (a, l) = ExtendedAddress::decode(buf)?;
                 (Address::Extended(pan_id, a), l)
-
             }
         };
         Ok((address, len))
@@ -828,13 +863,30 @@ impl Address {
         }
     }
 
+    /// Encodes the address into a buffer
+    pub fn encode_compress(&self, buf: &mut [u8]) -> usize {
+        match *self {
+            Address::None => 0,
+            Address::Short(_, a) => a.encode(buf),
+            Address::Extended(_, a) => a.encode(buf),
+        }
+    }
+
     /// Decodes an address from a byte buffer
-    pub fn pan_id(&self) -> Option<PanId>
-    {
+    pub fn pan_id(&self) -> Option<PanId> {
         match *self {
             Address::None => None,
             Address::Short(pan_id, _) => Some(pan_id),
             Address::Extended(pan_id, _) => Some(pan_id),
+        }
+    }
+
+    /// Get the address mode for this address
+    pub fn address_mode(&self) -> AddressMode {
+        match *self {
+            Address::None => AddressMode::None,
+            Address::Short(_, _) => AddressMode::Short,
+            Address::Extended(_, _) => AddressMode::Extended,
         }
     }
 }
@@ -861,37 +913,46 @@ pub enum DecodeError {
     InvalidFrameVersion(u8),
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn decode_ver0_pan_id_compression() {
-        let data = [0x41, 0x88, 0x91, 0x8f, 0x20, 0xff, 0xff, 0x33, 0x44, 0x00, 0x00];
+        let data = [
+            0x41, 0x88, 0x91, 0x8f, 0x20, 0xff, 0xff, 0x33, 0x44, 0x00, 0x00,
+        ];
         let frame = Frame::decode(&data).unwrap();
         assert_eq!(frame.header.frame_type, FrameType::Data);
         assert_eq!(frame.header.security, Security::None);
         assert_eq!(frame.header.frame_pending, false);
         assert_eq!(frame.header.ack_request, false);
         assert_eq!(frame.header.pan_id_compress, true);
+        assert_eq!(frame.header.version, FrameVersion::Ieee802154_2003);
+        assert_eq!(
+            frame.header.destination,
+            Address::Short(PanId(0x208f), ShortAddress(0xffff))
+        );
+        assert_eq!(
+            frame.header.source,
+            Address::Short(PanId(0x208f), ShortAddress(0x4433))
+        );
         assert_eq!(frame.header.seq, 145);
-        assert_eq!(frame.header.destination, Address::Short(PanId(0x208f), ShortAddress(0xffff)));
-        assert_eq!(frame.header.source, Address::Short(PanId(0x208f), ShortAddress(0x4433)));
     }
 
     #[test]
     fn decode_ver0_extended() {
-        let data = [0x21, 0xc8, 0x8b, 0xff, 0xff, 0x02, 0x00, 0x23,
-                    0x00, 0x60, 0xe2, 0x16, 0x21, 0x1c, 0x4a, 0xc2,
-                    0xae, 0xaa, 0xbb, 0xcc];
+        let data = [
+            0x21, 0xc8, 0x8b, 0xff, 0xff, 0x02, 0x00, 0x23, 0x00, 0x60, 0xe2, 0x16, 0x21, 0x1c,
+            0x4a, 0xc2, 0xae, 0xaa, 0xbb, 0xcc,
+        ];
         let frame = Frame::decode(&data).unwrap();
         assert_eq!(frame.header.frame_type, FrameType::Data);
         assert_eq!(frame.header.security, Security::None);
         assert_eq!(frame.header.frame_pending, false);
         assert_eq!(frame.header.ack_request, true);
         assert_eq!(frame.header.pan_id_compress, false);
-        assert_eq!(frame.header.seq, 139);
+        assert_eq!(frame.header.version, FrameVersion::Ieee802154_2003);
         assert_eq!(
             frame.header.destination,
             Address::Short(PanId(0xffff), ShortAddress(0x0002))
@@ -900,5 +961,117 @@ mod tests {
             frame.header.source,
             Address::Extended(PanId(0x0023), ExtendedAddress(0xaec24a1c2116e260))
         );
+        assert_eq!(frame.header.seq, 139);
     }
+
+    #[test]
+    fn encode_ver0_short() {
+        let frame = Frame {
+            header: Header {
+                frame_type: FrameType::Data,
+                security: Security::None,
+                frame_pending: false,
+                ack_request: false,
+                pan_id_compress: false,
+                version: FrameVersion::Ieee802154_2003,
+                destination: Address::Short(PanId(0x1234), ShortAddress(0x5678)),
+                source: Address::Short(PanId(0x4321), ShortAddress(0x9abc)),
+                seq: 0x01,
+            },
+            payload: &[0xde, 0xf0],
+            footer: [0x00, 0x00],
+        };
+        let mut buf = [0u8; 32];
+        let size = frame.encode(&mut buf, WriteFooter::No);
+        assert_eq!(size, 13);
+        assert_eq!(
+            buf[..size],
+            [0x01, 0x88, 0x01, 0x34, 0x12, 0x78, 0x56, 0x21, 0x43, 0xbc, 0x9a, 0xde, 0xf0]
+        );
+    }
+
+    #[test]
+    fn encode_ver1_extended() {
+        let frame = Frame {
+            header: Header {
+                frame_type: FrameType::Beacon,
+                security: Security::None,
+                frame_pending: true,
+                ack_request: false,
+                pan_id_compress: false,
+                version: FrameVersion::Ieee802154_2006,
+                destination: Address::Extended(PanId(0x1234), ExtendedAddress(0x1122334455667788)),
+                source: Address::Short(PanId(0x4321), ShortAddress(0x9abc)),
+                seq: 0xff,
+            },
+            payload: &[0xde, 0xf0],
+            footer: [0x00, 0x00],
+        };
+        let mut buf = [0u8; 32];
+        let size = frame.encode(&mut buf, WriteFooter::No);
+        assert_eq!(size, 19);
+        assert_eq!(
+            buf[..size],
+            [
+                0x10, 0x9c, 0xff, 0x34, 0x12, 0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, 0x21,
+                0x43, 0xbc, 0x9a, 0xde, 0xf0
+            ]
+        );
+    }
+
+    #[test]
+    fn encode_ver0_pan_compress() {
+        let frame = Frame {
+            header: Header {
+                frame_type: FrameType::Acknowledgement,
+                security: Security::None,
+                frame_pending: false,
+                ack_request: false,
+                pan_id_compress: true,
+                version: FrameVersion::Ieee802154_2003,
+                destination: Address::Extended(PanId(0x1234), ExtendedAddress(0x1122334455667788)),
+                source: Address::Short(PanId(0x1234), ShortAddress(0x9abc)),
+                seq: 0xff,
+            },
+            payload: &[0xde, 0xf0],
+            footer: [0x00, 0x00],
+        };
+        let mut buf = [0u8; 32];
+        let size = frame.encode(&mut buf, WriteFooter::No);
+        assert_eq!(size, 17);
+        assert_eq!(
+            buf[..size],
+            [
+                0x42, 0x8c, 0xff, 0x34, 0x12, 0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, 0xbc,
+                0x9a, 0xde, 0xf0
+            ]
+        );
+    }
+
+    #[test]
+    fn encode_ver2_none() {
+        let frame = Frame {
+            header: Header {
+                frame_type: FrameType::MacCommand,
+                security: Security::None,
+                frame_pending: false,
+                ack_request: true,
+                pan_id_compress: false,
+                version: FrameVersion::Ieee802154,
+                destination: Address::None,
+                source: Address::Short(PanId(0x1234), ShortAddress(0x9abc)),
+                seq: 0xff,
+            },
+            payload: &[0xde, 0xf0],
+            footer: [0x00, 0x00],
+        };
+        let mut buf = [0u8; 32];
+        let size = frame.encode(&mut buf, WriteFooter::No);
+        assert_eq!(size, 9);
+        assert_eq!(
+            buf[..size],
+            [0x23, 0xa0, 0xff, 0x34, 0x12, 0xbc, 0x9a, 0xde, 0xf0]
+        );
+    }
+
 }
