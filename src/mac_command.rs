@@ -7,7 +7,9 @@ use crate::utils::OptionalFrom;
 
 extended_enum!(
     /// MAC command identifiers
-    CommandType, u8,
+    /// 
+    /// ieee802.15.4-2015 chapter 7.5.1
+    CommandId, u8,
     /// Association request, request association to PAN
     AssociationRequest => 1,
     /// Association response
@@ -249,19 +251,19 @@ impl Command {
         if buf.len() == 0 {
             return Err(DecodeError::NotEnoughBytes);
         }
-        let cmd = CommandType::optional_from(buf[0]);
+        let cmd = CommandId::optional_from(buf[0]);
         if cmd.is_none() {
             return Err(DecodeError::InvalidValue);
         }
         match cmd.unwrap() {
-            CommandType::AssociationRequest => {
+            CommandId::AssociationRequest => {
                 if buf.len() < 2 {
                     return Err(DecodeError::NotEnoughBytes);
                 }
                 let capability = CapabilityInformation::from(buf[1]);
                 Ok((Command::AssociationRequest(capability), 2))
             }
-            CommandType::AssociationResponse => {
+            CommandId::AssociationResponse => {
                 if buf.len() < 4 {
                     return Err(DecodeError::NotEnoughBytes);
                 }
@@ -272,7 +274,7 @@ impl Command {
                     return Err(DecodeError::InvalidValue);
                 }
             }
-            CommandType::DisassociationNotification => {
+            CommandId::DisassociationNotification => {
                 if buf.len() < 2 {
                     return Err(DecodeError::NotEnoughBytes);
                 }
@@ -282,15 +284,15 @@ impl Command {
                     return Err(DecodeError::InvalidValue);
                 }
             }
-            CommandType::DataRequest => Ok((Command::DataRequest, 1)),
-            CommandType::PanIdConflictNotification => Ok((Command::PanIdConflictNotification, 1)),
-            CommandType::OrphanNotification => Ok((Command::OrphanNotification, 1)),
-            CommandType::BeaconRequest => Ok((Command::BeaconRequest, 1)),
-            CommandType::CoordinatorRealignment => {
+            CommandId::DataRequest => Ok((Command::DataRequest, 1)),
+            CommandId::PanIdConflictNotification => Ok((Command::PanIdConflictNotification, 1)),
+            CommandId::OrphanNotification => Ok((Command::OrphanNotification, 1)),
+            CommandId::BeaconRequest => Ok((Command::BeaconRequest, 1)),
+            CommandId::CoordinatorRealignment => {
                 let (data, size) = CoordinatorRealignmentData::decode(&buf[1..])?;
                 Ok((Command::CoordinatorRealignment(data), size + 1))
             }
-            CommandType::GuaranteedTimeSlotRequest => {
+            CommandId::GuaranteedTimeSlotRequest => {
                 if buf.len() < 2 {
                     return Err(DecodeError::NotEnoughBytes);
                 }
@@ -303,44 +305,44 @@ impl Command {
     pub fn encode(&self, buf: &mut [u8]) -> usize {
         match *self {
             Command::AssociationRequest(capability) => {
-                buf[0] = u8::from(CommandType::AssociationRequest);
+                buf[0] = u8::from(CommandId::AssociationRequest);
                 buf[1] = u8::from(capability);
                 2
             }
             Command::AssociationResponse(address, status) => {
-                buf[0] = u8::from(CommandType::AssociationResponse);
+                buf[0] = u8::from(CommandId::AssociationResponse);
                 let size = address.encode(&mut buf[1..3]);
                 buf[size + 1] = u8::from(status);
                 size + 2
             }
             Command::DisassociationNotification(reason) => {
-                buf[0] = u8::from(CommandType::DisassociationNotification);
+                buf[0] = u8::from(CommandId::DisassociationNotification);
                 buf[1] = u8::from(reason);
                 2
             }
             Command::DataRequest => {
-                buf[0] = u8::from(CommandType::DataRequest);
+                buf[0] = u8::from(CommandId::DataRequest);
                 1
             }
             Command::PanIdConflictNotification => {
-                buf[0] = u8::from(CommandType::PanIdConflictNotification);
+                buf[0] = u8::from(CommandId::PanIdConflictNotification);
                 1
             }
             Command::OrphanNotification => {
-                buf[0] = u8::from(CommandType::OrphanNotification);
+                buf[0] = u8::from(CommandId::OrphanNotification);
                 1
             }
             Command::BeaconRequest => {
-                buf[0] = u8::from(CommandType::BeaconRequest);
+                buf[0] = u8::from(CommandId::BeaconRequest);
                 1
             }
             Command::CoordinatorRealignment(data) => {
-                buf[0] = u8::from(CommandType::CoordinatorRealignment);
+                buf[0] = u8::from(CommandId::CoordinatorRealignment);
                 let size = data.encode(&mut buf[1..]);
                 size + 1
             }
             Command::GuaranteedTimeSlotRequest(characteristics) => {
-                buf[0] = u8::from(CommandType::GuaranteedTimeSlotRequest);
+                buf[0] = u8::from(CommandId::GuaranteedTimeSlotRequest);
                 buf[1] = u8::from(characteristics);
                 2
             }
