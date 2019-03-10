@@ -911,6 +911,9 @@ pub enum DecodeError {
 
     /// The frame's version is invalid or not supported
     InvalidFrameVersion(u8),
+
+    /// The data stream contains an invalid value
+    InvalidValue
 }
 
 #[cfg(test)]
