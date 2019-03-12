@@ -41,15 +41,15 @@ const CAP_ALLOCATE_ADDRESS: u8 = 0x80;
 pub struct CapabilityInformation {
     /// Full-function device (FFD) or a reduced-function device (RFD)
     /// RFD and FFD have different function sets.
-    full_function_device: bool,
-    // Device is connected to a mains power source or not
-    mains_power: bool,
+    pub full_function_device: bool,
+    /// Device is connected to a mains power source or not
+    pub mains_power: bool,
     /// Receive is enabled while idle
-    idle_receive: bool,
+    pub idle_receive: bool,
     /// Frames are cryptographically protected
-    frame_protection: bool,
+    pub frame_protection: bool,
     /// Device wish to have an short address allocated by the coordinator
-    allocate_address: bool,
+    pub allocate_address: bool,
 }
 
 impl From<u8> for CapabilityInformation {
@@ -190,11 +190,11 @@ const GTSC_ALLOCATION: u8 = 0x20;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct GuaranteedTimeSlotCharacteristics {
     /// Number of slots requested
-    count: u8,
+    pub count: u8,
     /// Receive only slots, otherwise transmit
-    receive_only: bool,
+    pub receive_only: bool,
     /// Request type, Allocate or de-allocate
-    allocation: bool,
+    pub allocation: bool,
 }
 
 impl From<u8> for GuaranteedTimeSlotCharacteristics {
