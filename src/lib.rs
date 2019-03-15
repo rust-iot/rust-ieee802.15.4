@@ -26,5 +26,4 @@
 #[macro_use]
 mod utils;
 pub mod mac;
-pub mod mac_command;
-pub mod beacon;
+

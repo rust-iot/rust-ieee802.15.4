@@ -1,11 +1,10 @@
-//! Partial implementation of the IEEE 802.15.4 MAC layer
+//! Partial implementation of the IEEE 802.15.4 Frame
 //!
 //! The main type in this module is [Frame], a type that represents an IEEE
 //! 802.15.4 MAC frame. The other types in this module are supporting types
 //! that are either part of [Frame] or are required to support its API.
 //!
 //! [Frame]: struct.Frame.html
-
 
 use core::mem::size_of_val;
 
