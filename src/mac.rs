@@ -872,7 +872,7 @@ impl Address {
         }
     }
 
-    /// Decodes an address from a byte buffer
+    /// Get the PAN ID for this address
     pub fn pan_id(&self) -> Option<PanId> {
         match *self {
             Address::None => None,
