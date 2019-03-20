@@ -791,7 +791,7 @@ pub enum Address {
 }
 
 impl Address {
-    /// Creates an instance of `Address` that presents the broadcast address
+    /// Creates an instance of `Address` that represents the broadcast address
     pub fn broadcast(mode: &AddressMode) -> Self {
         match mode {
             AddressMode::None => Address::None,
