@@ -344,10 +344,12 @@ impl Header {
             len += addr_len;
             source
         } else {
+            let pan_id = destination.pan_id()
+                .ok_or(DecodeError::InvalidAddressMode(dest_addr_mode as u8))?;
             let (source, addr_len) = Address::decode_compress(
                 &buf[len..],
                 &source_addr_mode,
-                destination.pan_id().unwrap().clone(),
+                pan_id,
             )?;
             len += addr_len;
             source
@@ -376,11 +378,12 @@ impl Header {
     ///
     /// Panics, if the buffer is not long enough to hold the header. If you
     /// believe that this behavior is inappropriate, please leave your feedback
-    /// on the [issue tracker].
+    /// on the [issue tracker]. Will also panic if the destination PAN
+    /// identifier differs from the source PAN identifier when using PAN
+    /// identifier compress.
     ///
     /// The header length depends on the options chosen and varies between 3 and
-    /// 30 octets (although the current implementation will, as of this writing,
-    /// always write 11 octets).
+    /// 30 octets.
     ///
     /// # Example
     ///
@@ -602,7 +605,7 @@ impl AddressMode {
 
 /// Personal Area Network Identifier
 ///
-/// A 16-bit identifier for devices in a PAN
+/// A 16-bit value that identifies a PAN
 #[derive(Clone, Copy, Debug, Eq, Hash, Hash32, PartialEq)]
 pub struct PanId(pub u16);
 
@@ -676,7 +679,10 @@ impl PanId {
     }
 }
 
-/// An address consisting of PAN ID and short address
+/// A 16-bit short address
+///
+/// Short address assigned to a device during association, used to identify the
+/// device in the PAN.
 #[derive(Clone, Copy, Debug, Eq, Hash, Hash32, PartialEq)]
 pub struct ShortAddress(pub u16);
 
@@ -753,7 +759,9 @@ impl ShortAddress {
     }
 }
 
-/// An address consisting of PAN ID and extended address
+/// A 64-bit extended address
+///
+/// A unique address that is used to identify an device in the PAN.
 #[derive(Clone, Copy, Debug, Eq, Hash, Hash32, PartialEq)]
 pub struct ExtendedAddress(pub u64);
 
@@ -791,7 +799,7 @@ pub enum Address {
 }
 
 impl Address {
-    /// Creates an instance of `Address` that presents the broadcast address
+    /// Creates an instance of `Address` that represents the broadcast address
     pub fn broadcast(mode: &AddressMode) -> Self {
         match mode {
             AddressMode::None => Address::None,
@@ -872,7 +880,7 @@ impl Address {
         }
     }
 
-    /// Decodes an address from a byte buffer
+    /// Get the PAN ID for this address
     pub fn pan_id(&self) -> Option<PanId> {
         match *self {
             Address::None => None,
@@ -892,7 +900,7 @@ impl Address {
 }
 
 /// Signals an error that occured while decoding bytes
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum DecodeError {
     /// Buffer does not contain enough bytes
     NotEnoughBytes,
@@ -905,9 +913,6 @@ pub enum DecodeError {
 
     /// The frame's address mode is invalid
     InvalidAddressMode(u8),
-
-    /// The frame's address mode is not supported
-    AddressModeNotSupported(AddressMode),
 
     /// The frame's version is invalid or not supported
     InvalidFrameVersion(u8),
@@ -941,6 +946,18 @@ mod tests {
             Address::Short(PanId(0x208f), ShortAddress(0x4433))
         );
         assert_eq!(frame.header.seq, 145);
+    }
+
+    #[test]
+    fn decode_ver0_pan_id_compression_bad() {
+        let data = [
+            0x41, 0x80, 0x91, 0x8f, 0x20, 0xff, 0xff, 0x33, 0x44, 0x00, 0x00,
+        ];
+        let frame = Frame::decode(&data);
+        assert!(frame.is_err());
+        if let Err(e) = frame {
+            assert_eq!(e, DecodeError::InvalidAddressMode(0))
+        }
     }
 
     #[test]
