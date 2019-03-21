@@ -14,6 +14,8 @@ use byteorder::{
 };
 use hash32_derive::Hash32;
 
+use crate::mac::beacon::Beacon;
+use crate::mac::command::Command;
 
 /// An IEEE 802.15.4 MAC frame
 ///
@@ -26,6 +28,9 @@ use hash32_derive::Hash32;
 pub struct Frame<'p> {
     /// Header
     pub header: Header,
+
+    /// Content
+    pub content: FrameContent,
 
     /// Payload
     pub payload: &'p [u8],
@@ -74,7 +79,7 @@ impl<'p> Frame<'p> {
     ///     0x12, 0x34,             // footer
     /// ];
     ///
-    /// let frame = Frame::decode(&bytes)?;
+    /// let frame = Frame::decode(&bytes, true)?;
     ///
     /// assert_eq!(frame.header.seq,             0x00);
     /// assert_eq!(frame.header.frame_type,      FrameType::Data);
@@ -98,21 +103,27 @@ impl<'p> Frame<'p> {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn decode(buf: &'p [u8]) -> Result<Self, DecodeError> {
+    pub fn decode(buf: &'p [u8], contains_footer: bool) -> Result<Self, DecodeError> {
         let (header, len) = Header::decode(buf)?;
 
-        if buf[len..].len() < 2 {
-            return Err(DecodeError::NotEnoughBytes);
-        }
+        let mut footer = [0; 2];
+        let payload = if contains_footer {
+            if buf[len..].len() < 2 {
+                return Err(DecodeError::NotEnoughBytes);
+            }
+            let footer_pos = buf.len() - 2;
+            footer.copy_from_slice(&buf[footer_pos..]);
+            &buf[len..footer_pos]
 
-        let mut footer     = [0; 2];
-        let     footer_pos = buf.len() - 2;
-        footer.copy_from_slice(&buf[footer_pos..]);
+        } else { &buf[len..] };
 
-        let payload = &buf[len .. footer_pos];
+        let (content, used) = FrameContent::decode(payload, &header)?;
+
+        let payload = &payload[used..];
 
         Ok(Frame {
             header,
+            content,
             payload,
             footer,
         })
@@ -135,6 +146,7 @@ impl<'p> Frame<'p> {
     ///     Address,
     ///     ShortAddress,
     ///     Frame,
+    ///     FrameContent,
     ///     FrameType,
     ///     FrameVersion,
     ///     Header,
@@ -156,7 +168,7 @@ impl<'p> Frame<'p> {
     ///         destination: Address::Short(PanId(0x1234), ShortAddress(0x5678)),
     ///         source:      Address::Short(PanId(0x1234), ShortAddress(0x9abc)),
     ///     },
-    ///
+    ///     content: FrameContent::Data,
     ///     payload: &[0xde, 0xf0],
     ///     footer:  [0x12, 0x34]
     /// };
@@ -183,6 +195,9 @@ impl<'p> Frame<'p> {
         // Write header
         len += self.header.encode(&mut buf[len..]);
 
+        // Write content
+        len += self.content.encode(&mut buf[len..]);
+
         // Write payload
         buf[len .. len+self.payload.len()].copy_from_slice(self.payload);
         len += self.payload.len();
@@ -191,7 +206,6 @@ impl<'p> Frame<'p> {
         match write_footer {
             WriteFooter::No => (),
         }
-
         len
     }
 }
@@ -898,6 +912,58 @@ impl Address {
     }
 }
 
+
+/// Content of a frame
+#[derive(Debug)]
+pub enum FrameContent
+{
+    /// Beacon frame content
+    Beacon(Beacon),
+    /// Data frame
+    Data,
+    /// Acknowledgement frame
+    Acknowledgement,
+    /// MAC command frame
+    Command(Command),
+}
+
+impl FrameContent {
+    /// Decode frame content from byte buffer
+    pub fn decode(buf: &[u8], header: &Header) -> Result<(Self, usize), DecodeError> {
+        match header.frame_type {
+            FrameType::Beacon => {
+                let (beacon, used) = Beacon::decode(buf)?;
+                Ok((FrameContent::Beacon(beacon), used))
+            }
+            FrameType::Data => {
+                Ok((FrameContent::Data, 0))
+            }
+            FrameType::Acknowledgement => {
+                Ok((FrameContent::Acknowledgement, 0))
+            }
+            FrameType::MacCommand => {
+                let (command, used) = Command::decode(buf)?;
+                Ok((FrameContent::Command(command), used))
+            }
+        }
+    }
+    /// Encode frame content into byte buffer
+    pub fn encode(&self, buf: &mut [u8]) -> usize {
+        match self {
+            FrameContent::Beacon(beacon) => {
+                beacon.encode(buf)
+            }
+            FrameContent::Data | FrameContent::Acknowledgement => {
+                0
+            }
+            FrameContent::Command(command) => {
+                command.encode(buf)
+            }
+        }
+    }
+
+}
+
 /// Signals an error that occured while decoding bytes
 #[derive(Debug, PartialEq)]
 pub enum DecodeError {
@@ -923,13 +989,15 @@ pub enum DecodeError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::mac::beacon;
+    use crate::mac::command;
 
     #[test]
     fn decode_ver0_pan_id_compression() {
         let data = [
             0x41, 0x88, 0x91, 0x8f, 0x20, 0xff, 0xff, 0x33, 0x44, 0x00, 0x00,
         ];
-        let frame = Frame::decode(&data).unwrap();
+        let frame = Frame::decode(&data, true).unwrap();
         assert_eq!(frame.header.frame_type, FrameType::Data);
         assert_eq!(frame.header.security, Security::None);
         assert_eq!(frame.header.frame_pending, false);
@@ -952,7 +1020,7 @@ mod tests {
         let data = [
             0x41, 0x80, 0x91, 0x8f, 0x20, 0xff, 0xff, 0x33, 0x44, 0x00, 0x00,
         ];
-        let frame = Frame::decode(&data);
+        let frame = Frame::decode(&data, true);
         assert!(frame.is_err());
         if let Err(e) = frame {
             assert_eq!(e, DecodeError::InvalidAddressMode(0))
@@ -965,7 +1033,7 @@ mod tests {
             0x21, 0xc8, 0x8b, 0xff, 0xff, 0x02, 0x00, 0x23, 0x00, 0x60, 0xe2, 0x16, 0x21, 0x1c,
             0x4a, 0xc2, 0xae, 0xaa, 0xbb, 0xcc,
         ];
-        let frame = Frame::decode(&data).unwrap();
+        let frame = Frame::decode(&data, true).unwrap();
         assert_eq!(frame.header.frame_type, FrameType::Data);
         assert_eq!(frame.header.security, Security::None);
         assert_eq!(frame.header.frame_pending, false);
@@ -997,6 +1065,7 @@ mod tests {
                 source: Address::Short(PanId(0x4321), ShortAddress(0x9abc)),
                 seq: 0x01,
             },
+            content: FrameContent::Data,
             payload: &[0xde, 0xf0],
             footer: [0x00, 0x00],
         };
@@ -1023,17 +1092,29 @@ mod tests {
                 source: Address::Short(PanId(0x4321), ShortAddress(0x9abc)),
                 seq: 0xff,
             },
+            content: FrameContent::Beacon( beacon::Beacon {
+                superframe_spec: beacon::SuperframeSpecification {
+                    beacon_order: beacon::BeaconOrder::OnDemand,
+                    superframe_order: beacon::SuperframeOrder::Inactive,
+                    final_cap_slot: 15,
+                    battery_life_extension: false,
+                    pan_coordinator: false,
+                    association_permit: false,
+                },
+                guaranteed_time_slot_info: beacon::GuaranteedTimeSlotInformation::new(),
+                pending_address: beacon::PendingAddress::new(),
+            } ),
             payload: &[0xde, 0xf0],
             footer: [0x00, 0x00],
         };
         let mut buf = [0u8; 32];
         let size = frame.encode(&mut buf, WriteFooter::No);
-        assert_eq!(size, 19);
+        assert_eq!(size, 23);
         assert_eq!(
             buf[..size],
             [
                 0x10, 0x9c, 0xff, 0x34, 0x12, 0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, 0x21,
-                0x43, 0xbc, 0x9a, 0xde, 0xf0
+                0x43, 0xbc, 0x9a, 0xff, 0x0f, 0x00, 0x00, 0xde, 0xf0
             ]
         );
     }
@@ -1052,17 +1133,18 @@ mod tests {
                 source: Address::Short(PanId(0x1234), ShortAddress(0x9abc)),
                 seq: 0xff,
             },
-            payload: &[0xde, 0xf0],
+            content: FrameContent::Acknowledgement,
+            payload: &[],
             footer: [0x00, 0x00],
         };
         let mut buf = [0u8; 32];
         let size = frame.encode(&mut buf, WriteFooter::No);
-        assert_eq!(size, 17);
+        assert_eq!(size, 15);
         assert_eq!(
             buf[..size],
             [
                 0x42, 0x8c, 0xff, 0x34, 0x12, 0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, 0xbc,
-                0x9a, 0xde, 0xf0
+                0x9a
             ]
         );
     }
@@ -1081,15 +1163,16 @@ mod tests {
                 source: Address::Short(PanId(0x1234), ShortAddress(0x9abc)),
                 seq: 0xff,
             },
-            payload: &[0xde, 0xf0],
+            content: FrameContent::Command(command::Command::DataRequest),
+            payload: &[],
             footer: [0x00, 0x00],
         };
         let mut buf = [0u8; 32];
         let size = frame.encode(&mut buf, WriteFooter::No);
-        assert_eq!(size, 9);
+        assert_eq!(size, 8);
         assert_eq!(
             buf[..size],
-            [0x23, 0xa0, 0xff, 0x34, 0x12, 0xbc, 0x9a, 0xde, 0xf0]
+            [0x23, 0xa0, 0xff, 0x34, 0x12, 0xbc, 0x9a, 0x04]
         );
     }
 

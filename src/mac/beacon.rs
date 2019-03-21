@@ -171,6 +171,15 @@ pub struct GuaranteedTimeSlotDescriptor {
 }
 
 impl GuaranteedTimeSlotDescriptor {
+    /// Create a new empty slot
+    pub fn new() -> Self {
+        GuaranteedTimeSlotDescriptor {
+            short_address: ShortAddress::broadcast(),
+            starting_slot: 0,
+            length: 0,
+            direction: Direction::Receive,
+        }
+    }
     /// Decode guaranteed time slot descriptor from byte slice
     pub fn decode(buf: &[u8]) -> Result<(Self, usize), DecodeError> {
         const DATA_SIZE: usize = 3;
@@ -222,6 +231,14 @@ pub struct GuaranteedTimeSlotInformation {
 }
 
 impl GuaranteedTimeSlotInformation {
+    /// Create a new empty GTS information
+    pub fn new() -> Self {
+        GuaranteedTimeSlotInformation {
+            permit: false,
+            slot_count: 0,
+            slots: [GuaranteedTimeSlotDescriptor::new(); 7],
+        }
+    }
     /// Decode guaranteed time slot information from byte slice
     pub fn decode(buf: &[u8]) -> Result<(Self, usize), DecodeError> {
         if buf.len() < 1 {
@@ -261,16 +278,17 @@ impl GuaranteedTimeSlotInformation {
     }
     /// Encode guaranteed time slot information from a byte slice
     pub fn encode(&self, buf: &mut [u8]) -> usize {
-        assert!(self.slots.len() <= 7);
+        assert!(self.slot_count <= 7);
         let mut size = 1usize; // header byte
         let permit = if self.permit { PERMIT } else { 0 };
-        buf[0] = ((self.slots.len() as u8) & COUNT_MASK) | permit;
-        if !self.slots.is_empty() {
+        buf[0] = ((self.slot_count as u8) & COUNT_MASK) | permit;
+        if self.slot_count > 0 {
             size += 1; // direction field
             let mut dir = 0x01;
             let mut direction_mask = 0u8;
             let mut piece = &mut buf[2..];
-            for slot in self.slots.iter() {
+            for n in 0..self.slot_count {
+                let slot = self.slots[n];
                 let slot_size = slot.encode(piece);
                 size += slot_size;
                 piece = &mut piece[3..];
@@ -322,6 +340,15 @@ pub struct PendingAddress {
 }
 
 impl PendingAddress {
+    /// Create a new empty PendingAddress struct
+    pub fn new() -> Self {
+        PendingAddress {
+            short_address_count: 0,
+            short_addresses: [ShortAddress::broadcast(); 7],
+            extended_address_count: 0,
+            extended_addresses: [ExtendedAddress::broadcast(); 7],
+        }
+    }
     /// Decode pending address from byte slice
     pub fn decode(buf: &[u8]) -> Result<(Self, usize), DecodeError> {
         if buf.len() < 1 {
@@ -362,19 +389,21 @@ impl PendingAddress {
     }
     /// Encode pending address into byte slice
     pub fn encode(&self, buf: &mut [u8]) -> usize {
-        assert!(self.short_addresses.len() <= 7);
-        assert!(self.extended_addresses.len() <= 7);
+        assert!(self.short_address_count <= 7);
+        assert!(self.extended_address_count <= 7);
         let ss = mem::size_of::<ShortAddress>();
         let es = mem::size_of::<ExtendedAddress>();
-        let sl = self.short_addresses.len();
-        let el = self.extended_addresses.len();
+        let sl = self.short_address_count;
+        let el = self.extended_address_count;
         buf[0] = (((el as u8) << 4) & EXTENDED_MASK) | ((sl as u8) & SHORT_MASK);
         let mut piece = &mut buf[1..];
-        for addr in self.short_addresses.iter() {
+        for n in 0..self.short_address_count {
+            let addr = self.short_addresses[n];
             addr.encode(piece);
             piece = &mut piece[ss..];
         }
-        for addr in self.extended_addresses.iter() {
+        for n in 0..self.extended_address_count {
+            let addr = self.extended_addresses[n];
             addr.encode(piece);
             piece = &mut piece[es..];
         }

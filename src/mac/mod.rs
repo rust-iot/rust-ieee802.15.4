@@ -1,28 +1,8 @@
 //! Partial implementation of the IEEE 802.15.4 MAC layer
 
 mod frame;
-mod command;
-mod beacon;
-
-pub use beacon::{
-    Beacon,
-    BeaconOrder,
-    GuaranteedTimeSlotDescriptor,
-    GuaranteedTimeSlotInformation,
-    PendingAddress,
-    SuperframeOrder,
-    SuperframeSpecification,
-};
-
-pub use command::{
-    AssociationStatus,
-    CapabilityInformation,
-    Command,
-    CommandId,
-    CoordinatorRealignmentData,
-    DisassociationReason,
-    GuaranteedTimeSlotCharacteristics,
-};
+pub mod command;
+pub mod beacon;
 
 pub use frame::{
     Address,
@@ -30,6 +10,7 @@ pub use frame::{
     DecodeError,
     ExtendedAddress,
     Frame,
+    FrameContent,
     FrameType,
     FrameVersion,
     Header,
