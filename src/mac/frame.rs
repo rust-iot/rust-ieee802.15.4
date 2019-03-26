@@ -24,7 +24,7 @@ use crate::mac::command::Command;
 ///
 /// [decode]: #method.decode
 /// [encode]: #method.encode
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct Frame<'p> {
     /// Header
     pub header: Header,
@@ -224,7 +224,7 @@ pub enum WriteFooter {
 }
 
 /// MAC frame header
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct Header {
     /// Frame Type
     pub frame_type: FrameType,
@@ -474,7 +474,7 @@ impl Header {
 /// Defines the type of a MAC frame
 ///
 /// Part of [`Header`].
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum FrameType {
     /// Beacon
     Beacon = 0b000,
@@ -518,7 +518,7 @@ impl FrameType {
 ///
 /// Part of [`Header`]. Auxiliary security headers are currently unsupported by
 /// this implementation.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum Security {
     /// No auxiliary security header is present
     None = 0b0,
@@ -547,7 +547,7 @@ impl Security {
 }
 
 /// Defines version information for a frame
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum FrameVersion {
     /// A frame conforming to the 802.15.4-2003 standard
     Ieee802154_2003 = 0b00,
@@ -582,7 +582,7 @@ impl FrameVersion {
 }
 
 /// Defines the type of Address
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum AddressMode {
     /// PAN identifier and address field are not present
     None = 0b00,
@@ -965,7 +965,7 @@ impl FrameContent {
 }
 
 /// Signals an error that occured while decoding bytes
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum DecodeError {
     /// Buffer does not contain enough bytes
     NotEnoughBytes,
