@@ -8,7 +8,7 @@ use core::mem;
 use crate::mac::{DecodeError, ExtendedAddress, ShortAddress};
 
 /// Beacon order is used to calculate the beacon interval
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum BeaconOrder {
     /// Used to calculate at which interval beacons are sent
     /// 
@@ -39,7 +39,7 @@ impl From<BeaconOrder> for u8 {
 }
 
 /// Superframe order, amount of time during wich this superframe is active
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum SuperframeOrder {
     /// Ammount of time that the superframe is active
     /// 
@@ -75,7 +75,7 @@ impl From<SuperframeOrder> for u8 {
 /// air.
 ///
 /// Std 802.15.4-2011 chapter 5.2.2.1.2
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct SuperframeSpecification {
     /// Beacon order, 0-15, where 15 is on demand.
     /// Beacon interval  = BaseSuperframeDuration × (2 ^ BeaconOrder)
@@ -149,7 +149,7 @@ impl SuperframeSpecification {
 }
 
 /// Direction of data
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 enum Direction {
     /// Receive data
     Receive,
@@ -158,7 +158,7 @@ enum Direction {
 }
 
 /// Descriptor of the guaranteed time slots (GTSs)
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct GuaranteedTimeSlotDescriptor {
     /// Device short address used by this slot
     short_address: ShortAddress,
@@ -222,7 +222,7 @@ const COUNT_MASK: u8 = 0b0000_0111;
 const PERMIT: u8 = 0b1000_0000;
 
 /// Information of the guaranteed time slots (GTSs)
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct GuaranteedTimeSlotInformation {
     /// Permit GTS
     pub permit: bool,
@@ -331,7 +331,7 @@ const EXTENDED_MASK: u8 = 0b0111_0000;
 /// ```
 ///
 ///
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct PendingAddress {
     short_address_count: usize,
     short_addresses: [ShortAddress; 7],
@@ -419,7 +419,7 @@ impl PendingAddress {
     }
 }
  /// Beacon frame
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct Beacon {
     /// Superframe specification
     pub superframe_spec: SuperframeSpecification,

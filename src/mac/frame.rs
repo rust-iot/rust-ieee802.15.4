@@ -914,7 +914,7 @@ impl Address {
 
 
 /// Content of a frame
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum FrameContent
 {
     /// Beacon frame content

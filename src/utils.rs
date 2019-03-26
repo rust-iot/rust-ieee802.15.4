@@ -14,7 +14,7 @@ macro_rules! extended_enum {
     ($(#[$outer:meta])* $name:ident, $ty:ty, $($(#[$inner:meta])* $var:ident => $val:expr),+ $(,)*) => (
 
         $(#[$outer])*
-        #[derive(Clone, Copy, Debug, PartialEq)]
+        #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
         pub enum $name {
             $(
                 $(#[$inner])*
