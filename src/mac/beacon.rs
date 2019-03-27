@@ -1,4 +1,4 @@
-//! Beacon frame
+//! Beacon
 //! 
 //! Work in progress
 
@@ -11,7 +11,7 @@ use crate::mac::{DecodeError, ExtendedAddress, ShortAddress};
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum BeaconOrder {
     /// Used to calculate at which interval beacons are sent
-    /// 
+    ///
     /// Beacon interval  = BaseSuperframeDuration × (2 ^ BeaconOrder)
     BeaconOrder(u8),
     /// Beacon are only sent on demand
@@ -42,7 +42,7 @@ impl From<BeaconOrder> for u8 {
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum SuperframeOrder {
     /// Ammount of time that the superframe is active
-    /// 
+    ///
     /// superframe duration = base superframe duration × (2 ^ superframe order)
     SuperframeOrder(u8),
     /// No superframes are sent
@@ -72,19 +72,18 @@ impl From<SuperframeOrder> for u8 {
 /// Superframe specification
 ///
 /// The superframe specification describes the organisation of frames in the
-/// air.
-///
-/// Std 802.15.4-2011 chapter 5.2.2.1.2
+/// air when using superframes and/or periodical beacons.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct SuperframeSpecification {
     /// Beacon order, 0-15, where 15 is on demand.
+    ///
     /// Beacon interval  = BaseSuperframeDuration × (2 ^ BeaconOrder)
     pub beacon_order: BeaconOrder,
     /// Superframe order, amount of time during wich this superframe is active
     pub superframe_order: SuperframeOrder,
     /// final contention access period slot used
     pub final_cap_slot: u8,
-    /// ???
+    /// Limit receiving of beacons for a period. Not used if beacon_order is OnDemand.
     pub battery_life_extension: bool,
     /// Frame sent by a coordinator
     pub pan_coordinator: bool,
@@ -97,7 +96,19 @@ const PAN_COORDINATOR: u8 = 0b0100_0000;
 const ASSOCIATION_PERMIT: u8 = 0b1000_0000;
 
 impl SuperframeSpecification {
-    /// Decode superframe specification from byte slice
+    /// Decode superframe specification from byte buffer
+    ///
+    /// # Returns
+    ///
+    /// Returns [`SuperframeSpecification`] and the number of bytes used are returned
+    ///
+    /// # Errors
+    ///
+    /// This function returns an error, if the bytes either don't are enough or
+    /// dont't contain valid data. Please refer to [`DecodeError`] for details.
+    ///
+    /// [`DecodeError`]: ../enum.DecodeError.html
+    /// [`SuperframeSpecification`]: struct.SuperframeSpecification.html
     pub fn decode(buf: &[u8]) -> Result<(Self, usize), DecodeError> {
         const DATA_SIZE: usize = 2;
         if buf.len() < DATA_SIZE {
@@ -123,7 +134,16 @@ impl SuperframeSpecification {
             DATA_SIZE,
         ))
     }
-    /// Encode superframe specification into a byte slice
+    /// Encode superframe specification into a byte buffer
+    ///
+    /// # Returns
+    ///
+    /// Returns the number of bytes written to the buffer
+    ///
+    /// # Panics
+    ///
+    /// Panics if the buffer is not long enough to hold the frame.
+    ///
     pub fn encode(&self, buf: &mut [u8]) -> usize {
         let bo = u8::from(self.beacon_order.clone());
         let so = u8::from(self.superframe_order.clone());
@@ -180,7 +200,19 @@ impl GuaranteedTimeSlotDescriptor {
             direction: Direction::Receive,
         }
     }
-    /// Decode guaranteed time slot descriptor from byte slice
+    /// Decode guaranteed time slot descriptor from byte buffer
+    ///
+    /// # Returns
+    ///
+    /// Returns [`GuaranteedTimeSlotDescriptor`] and the number of bytes used are returned
+    ///
+    /// # Errors
+    ///
+    /// This function returns an error, if the bytes either don't are enough or
+    /// dont't contain valid data. Please refer to [`DecodeError`] for details.
+    ///
+    /// [`DecodeError`]: ../enum.DecodeError.html
+    /// [`GuaranteedTimeSlotDescriptor`]: struct.GuaranteedTimeSlotDescriptor.html
     pub fn decode(buf: &[u8]) -> Result<(Self, usize), DecodeError> {
         const DATA_SIZE: usize = 3;
         if buf.len() < DATA_SIZE {
@@ -201,7 +233,16 @@ impl GuaranteedTimeSlotDescriptor {
             DATA_SIZE,
         ))
     }
-    /// Encode guaranteed time slot descriptor into byte slice
+    /// Encode guaranteed time slot descriptor into byte buffer
+    ///
+    /// # Returns
+    ///
+    /// Returns the number of bytes written to the buffer
+    ///
+    /// # Panics
+    ///
+    /// Panics if the buffer is not long enough to hold the frame.
+    ///
     pub fn encode(&self, buf: &mut [u8]) -> usize {
         let size = self.short_address.encode(&mut buf[..2]);
         buf[size] = self.starting_slot | self.length << 4;
@@ -210,9 +251,11 @@ impl GuaranteedTimeSlotDescriptor {
 }
 
 impl GuaranteedTimeSlotDescriptor {
+    /// Set the direction for this slot
     fn set_direction(&mut self, direction: Direction) {
         self.direction = direction;
     }
+    /// Returns `true` if this is a transmit slot
     fn direction_transmit(&self) -> bool {
         self.direction == Direction::Transmit
     }
@@ -239,7 +282,19 @@ impl GuaranteedTimeSlotInformation {
             slots: [GuaranteedTimeSlotDescriptor::new(); 7],
         }
     }
-    /// Decode guaranteed time slot information from byte slice
+    /// Decode guaranteed time slot information from byte buffer
+    ///
+    /// # Returns
+    ///
+    /// Returns [`GuaranteedTimeSlotInformation`] and the number of bytes used are returned
+    ///
+    /// # Errors
+    ///
+    /// This function returns an error, if the bytes either don't are enough or
+    /// dont't contain valid data. Please refer to [`DecodeError`] for details.
+    ///
+    /// [`DecodeError`]: ../enum.DecodeError.html
+    /// [`GuaranteedTimeSlotInformation`]: struct.GuaranteedTimeSlotInformation.html
     pub fn decode(buf: &[u8]) -> Result<(Self, usize), DecodeError> {
         if buf.len() < 1 {
             return Err(DecodeError::NotEnoughBytes);
@@ -276,7 +331,16 @@ impl GuaranteedTimeSlotInformation {
         }
         Ok((GuaranteedTimeSlotInformation { permit, slot_count, slots }, offset))
     }
-    /// Encode guaranteed time slot information from a byte slice
+    /// Encode guaranteed time slot information into a byte buffer
+    ///
+    /// # Returns
+    ///
+    /// Returns the number of bytes written to the buffer
+    ///
+    /// # Panics
+    ///
+    /// Panics if the buffer is not long enough to hold the frame.
+    ///
     pub fn encode(&self, buf: &mut [u8]) -> usize {
         assert!(self.slot_count <= 7);
         let mut size = 1usize; // header byte
@@ -330,7 +394,6 @@ const EXTENDED_MASK: u8 = 0b0111_0000;
 ///      0 - 2         3         4 - 6             7        bit
 /// ```
 ///
-///
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct PendingAddress {
     short_address_count: usize,
@@ -349,7 +412,19 @@ impl PendingAddress {
             extended_addresses: [ExtendedAddress::broadcast(); 7],
         }
     }
-    /// Decode pending address from byte slice
+    /// Decode pending address from byte buffer
+    ///
+    /// # Returns
+    ///
+    /// Returns [`PendingAddress`] and the number of bytes used are returned
+    ///
+    /// # Errors
+    ///
+    /// This function returns an error, if the bytes either don't are enough or
+    /// dont't contain valid data. Please refer to [`DecodeError`] for details.
+    ///
+    /// [`DecodeError`]: ../enum.DecodeError.html
+    /// [`PendingAddress`]: struct.PendingAddress.html
     pub fn decode(buf: &[u8]) -> Result<(Self, usize), DecodeError> {
         if buf.len() < 1 {
             return Err(DecodeError::NotEnoughBytes);
@@ -387,7 +462,16 @@ impl PendingAddress {
             offset,
         ))
     }
-    /// Encode pending address into byte slice
+    /// Encode pending address into byte buffer
+    ///
+    /// # Returns
+    ///
+    /// Returns the number of bytes written to the buffer
+    ///
+    /// # Panics
+    ///
+    /// Panics if the buffer is not long enough to hold the frame.
+    ///
     pub fn encode(&self, buf: &mut [u8]) -> usize {
         assert!(self.short_address_count <= 7);
         assert!(self.extended_address_count <= 7);
@@ -430,7 +514,19 @@ pub struct Beacon {
 }
 
 impl Beacon {
-    /// Decode beacon frame from byte slice
+    /// Decode beacon frame from byte  buffer
+    ///
+    /// # Returns
+    ///
+    /// Returns [`Beacon`] and the number of bytes used are returned
+    ///
+    /// # Errors
+    ///
+    /// This function returns an error, if the bytes either don't are enough or
+    /// dont't contain valid data. Please refer to [`DecodeError`] for details.
+    ///
+    /// [`DecodeError`]: ../enum.DecodeError.html
+    /// [`Beacon`]: struct.Beacon.html
     pub fn decode(buf: &[u8]) -> Result<(Self, usize), DecodeError> {
         let mut offset = 0usize;
         let (superframe_spec, size) = SuperframeSpecification::decode(&buf[offset..])?;
@@ -449,7 +545,16 @@ impl Beacon {
             offset,
         ))
     }
-    /// Encode beacon frame into byte slice
+    /// Encode beacon frame into byte buffer
+    ///
+    /// # Returns
+    ///
+    /// Returns the number of bytes written to the buffer
+    ///
+    /// # Panics
+    ///
+    /// Panics if the buffer is not long enough to hold the frame.
+    ///
     pub fn encode(&self, buf: &mut [u8]) -> usize {
         let size = self.superframe_spec.encode(buf);
         let mut offset = size;

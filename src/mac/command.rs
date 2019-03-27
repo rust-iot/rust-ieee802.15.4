@@ -1,4 +1,4 @@
-//! 802.15.4 MAC commands
+//! MAC commands
 //!
 //! Work in progress
 
@@ -7,8 +7,6 @@ use crate::utils::OptionalFrom;
 
 extended_enum!(
     /// MAC command identifiers
-    /// 
-    /// ieee802.15.4-2015 chapter 7.5.1
     CommandId, u8,
     /// Association request, request association to PAN
     AssociationRequest => 1,
@@ -36,7 +34,9 @@ const CAP_IDLE_RECEIVE: u8 = 0x08;
 const CAP_FRAME_PROTECTION: u8 = 0x40;
 const CAP_ALLOCATE_ADDRESS: u8 = 0x80;
 
-/// MAC association request capability information
+/// Association request capability information
+///
+/// Sent with association request to report the capabilities of the device.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct CapabilityInformation {
     /// Full-function device (FFD) or a reduced-function device (RFD)
@@ -117,7 +117,7 @@ extended_enum!(
 
 /// Coordinator re-alignment data
 ///
-/// Changes to the PAN sent by the coordinator?
+/// Changes to the PAN sent by the coordinator.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct CoordinatorRealignmentData {
     /// PAN id that the coordinator will use
@@ -128,12 +128,24 @@ pub struct CoordinatorRealignmentData {
     pub channel: u8,
     /// Device address or broadcast
     pub device_address: ShortAddress,
-    /// Page?
-    pub page: Option<u8>,
+    /// Channel page or channel number the coordinator will use
+    pub channel_page: Option<u8>,
 }
 
 impl CoordinatorRealignmentData {
-    /// Decode a coordinator re-alignment data from byte slice
+    /// Decode coordinator re-alignment data from byte buffer
+    ///
+    /// # Returns
+    ///
+    /// Returns [`CoordinatorRealignmentData`] and the number of bytes used are returned
+    ///
+    /// # Errors
+    ///
+    /// This function returns an error, if the bytes either don't are enough or
+    /// dont't contain valid data. Please refer to [`DecodeError`] for details.
+    ///
+    /// [`DecodeError`]: ../enum.DecodeError.html
+    /// [`CoordinatorRealignmentData`]: struct.CoordinatorRealignmentData.html
     pub fn decode(buf: &[u8]) -> Result<(Self, usize), DecodeError> {
         if buf.len() < 7 {
             return Err(DecodeError::NotEnoughBytes);
@@ -147,7 +159,7 @@ impl CoordinatorRealignmentData {
         offset += 1;
         let (device_address, size) = ShortAddress::decode(&buf[offset..])?;
         offset += size;
-        let page = if buf.len() > 7 {
+        let channel_page = if buf.len() > 7 {
             offset += 1;
             Some(buf[offset - 1])
         } else {
@@ -159,12 +171,21 @@ impl CoordinatorRealignmentData {
                 coordinator_address,
                 channel,
                 device_address,
-                page,
+                channel_page,
             },
             offset,
         ))
     }
-    /// Encode coordinator re-alignment data from byte slice
+    /// Encode coordinator re-alignment data into a byte buffer
+    ///
+    /// # Returns
+    ///
+    /// Returns the number of bytes written to the buffer
+    ///
+    /// # Panics
+    ///
+    /// Panics if the buffer is not long enough to hold the frame.
+    ///
     pub fn encode(&self, buf: &mut [u8]) -> usize {
         let mut offset = 0;
         let size = self.pan_id.encode(buf);
@@ -175,8 +196,8 @@ impl CoordinatorRealignmentData {
         offset += 1;
         let size = self.device_address.encode(&mut buf[offset..]);
         offset += size;
-        if let Some(page) = self.page {
-            buf[offset] = page;
+        if let Some(channel_page) = self.channel_page {
+            buf[offset] = channel_page;
             offset += 1;
         }
         offset
@@ -187,6 +208,8 @@ const GTSC_RECEIVE_ONLY: u8 = 0x10;
 const GTSC_ALLOCATION: u8 = 0x20;
 
 /// Guaranteed time slot characteristics
+///
+/// GTS configuration requested with the guaranteed time slot request command.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct GuaranteedTimeSlotCharacteristics {
     /// Number of slots requested
@@ -246,7 +269,19 @@ pub enum Command {
 }
 
 impl Command {
-    /// Decode a MAC command from the byte
+    /// Decode MAC command from byte buffer
+    ///
+    /// # Returns
+    ///
+    /// Returns [`Command`] and the number of bytes used are returned
+    ///
+    /// # Errors
+    ///
+    /// This function returns an error, if the bytes either don't are enough or
+    /// dont't contain valid data. Please refer to [`DecodeError`] for details.
+    ///
+    /// [`DecodeError`]: ../enum.DecodeError.html
+    /// [`Command`]: enum.Command.html
     pub fn decode(buf: &[u8]) -> Result<(Self, usize), DecodeError> {
         if buf.len() == 0 {
             return Err(DecodeError::NotEnoughBytes);
@@ -301,7 +336,16 @@ impl Command {
             }
         }
     }
-    /// Encode the Command into byte slice
+    /// Encode the Command into a byte buffer
+    ///
+    /// # Returns
+    ///
+    /// Returns the number of bytes written to the buffer
+    ///
+    /// # Panics
+    ///
+    /// Panics if the buffer is not long enough to hold the frame.
+    ///
     pub fn encode(&self, buf: &mut [u8]) -> usize {
         match *self {
             Command::AssociationRequest(capability) => {
@@ -600,7 +644,7 @@ mod tests {
                 coordinator_address: ShortAddress(0x0001),
                 channel: 15,
                 device_address: ShortAddress(0x1234),
-                page: None,
+                channel_page: None,
             })
         );
 
@@ -614,7 +658,7 @@ mod tests {
                 coordinator_address: ShortAddress(0x4321),
                 channel: 11,
                 device_address: ShortAddress(0xabcd),
-                page: Some(1),
+                channel_page: Some(1),
             })
         );
     }
@@ -628,7 +672,7 @@ mod tests {
             coordinator_address: ShortAddress(0x0001),
             channel: 15,
             device_address: ShortAddress(0x1234),
-            page: None,
+            channel_page: None,
         });
         let size = command.encode(&mut data);
         assert_eq!(size, 8);
@@ -642,7 +686,7 @@ mod tests {
             coordinator_address: ShortAddress(0xfeed),
             channel: 26,
             device_address: ShortAddress(0x1234),
-            page: Some(15),
+            channel_page: Some(15),
         });
         let size = command.encode(&mut data);
         assert_eq!(size, 9);
