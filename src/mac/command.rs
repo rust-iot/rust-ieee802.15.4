@@ -100,7 +100,7 @@ extended_enum!(
     NetworkAtCapacity => 0x01,
     /// Access to PAN denied
     AccessDenied => 0x02,
-    /// ???
+    /// Duplicate hopping sequence offset
     HoppingSequenceOffsetDuplication => 0x03,
     /// Fast association was successful
     FastAssociationSuccesful => 0x80,

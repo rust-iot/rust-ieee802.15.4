@@ -560,7 +560,7 @@ impl Beacon {
         let mut offset = size;
         let size = self.guaranteed_time_slot_info.encode(&mut buf[offset..]);
         offset += size;
-        let _ = self.pending_address.encode(&mut buf[offset..]);
+        let size = self.pending_address.encode(&mut buf[offset..]);
         offset += size;
         offset
     }
@@ -623,5 +623,122 @@ mod tests {
 
         assert_eq!(beacon.pending_address.short_addresses().len(), 0);
         assert_eq!(beacon.pending_address.extended_addresses().len(), 0);
+
+        let data = [0x12, 0xc3, 0x82, 0x01, 0x34, 0x12, 0x11, 0x78, 0x56,
+            0x14, 0x00];
+        let (beacon, size) = Beacon::decode(&data).unwrap();
+        assert_eq!(size, 11);
+
+        assert_eq!(beacon.superframe_spec.beacon_order,
+            BeaconOrder::BeaconOrder(2));
+        assert_eq!(beacon.superframe_spec.superframe_order,
+            SuperframeOrder::SuperframeOrder(1));
+        assert_eq!(beacon.superframe_spec.final_cap_slot, 3);
+        assert_eq!(beacon.superframe_spec.battery_life_extension, false);
+        assert_eq!(beacon.superframe_spec.pan_coordinator, true);
+        assert_eq!(beacon.superframe_spec.association_permit, true);
+
+        assert_eq!(beacon.guaranteed_time_slot_info.permit, true);
+        let slots = beacon.guaranteed_time_slot_info.slots();
+        assert_eq!(slots.len(), 2);
+        assert_eq!(slots[0].short_address, ShortAddress(0x1234));
+        assert_eq!(slots[0].starting_slot, 1);
+        assert_eq!(slots[0].length, 1);
+        assert_eq!(slots[0].direction, Direction::Transmit);
+        assert_eq!(slots[1].short_address, ShortAddress(0x5678));
+        assert_eq!(slots[1].starting_slot, 4);
+        assert_eq!(slots[1].length, 1);
+        assert_eq!(slots[1].direction, Direction::Receive);
+
+        assert_eq!(beacon.pending_address.short_addresses().len(), 0);
+        assert_eq!(beacon.pending_address.extended_addresses().len(), 0);
+
+        let data = [0x12, 0xc3, 0x82, 0x02, 0x34, 0x12, 0x11, 0x78, 0x56,
+            0x14, 0x12, 0x34, 0x12, 0x78, 0x56, 0xef, 0xcd, 0xab, 0x89, 0x67,
+            0x45, 0x23, 0x01];
+        let (beacon, size) = Beacon::decode(&data).unwrap();
+        assert_eq!(size, 23);
+
+        assert_eq!(beacon.superframe_spec.beacon_order,
+            BeaconOrder::BeaconOrder(2));
+        assert_eq!(beacon.superframe_spec.superframe_order,
+            SuperframeOrder::SuperframeOrder(1));
+        assert_eq!(beacon.superframe_spec.final_cap_slot, 3);
+        assert_eq!(beacon.superframe_spec.battery_life_extension, false);
+        assert_eq!(beacon.superframe_spec.pan_coordinator, true);
+        assert_eq!(beacon.superframe_spec.association_permit, true);
+
+        assert_eq!(beacon.guaranteed_time_slot_info.permit, true);
+        let slots = beacon.guaranteed_time_slot_info.slots();
+        assert_eq!(slots.len(), 2);
+        assert_eq!(slots[0].short_address, ShortAddress(0x1234));
+        assert_eq!(slots[0].starting_slot, 1);
+        assert_eq!(slots[0].length, 1);
+        assert_eq!(slots[0].direction, Direction::Receive);
+        assert_eq!(slots[1].short_address, ShortAddress(0x5678));
+        assert_eq!(slots[1].starting_slot, 4);
+        assert_eq!(slots[1].length, 1);
+        assert_eq!(slots[1].direction, Direction::Transmit);
+
+        assert_eq!(beacon.pending_address.short_addresses().len(), 2);
+        assert_eq!(beacon.pending_address.short_addresses()[0],
+            ShortAddress(0x1234));
+        assert_eq!(beacon.pending_address.short_addresses()[1],
+            ShortAddress(0x5678));
+        assert_eq!(beacon.pending_address.extended_addresses().len(), 1);
+        assert_eq!(beacon.pending_address.extended_addresses()[0],
+            ExtendedAddress(0x0123456789abcdef));
+    }
+
+    #[test]
+    fn encode_beacon() {
+
+        let superframe_spec = SuperframeSpecification {
+            beacon_order: BeaconOrder::OnDemand,
+            superframe_order: SuperframeOrder::Inactive,
+            final_cap_slot: 0,
+            battery_life_extension: false,
+            pan_coordinator: true,
+            association_permit: true,
+        };
+
+        let mut slots = [GuaranteedTimeSlotDescriptor::new(); 7];
+        slots[0] = GuaranteedTimeSlotDescriptor {
+            short_address: ShortAddress(0x1234),
+            starting_slot: 1,
+            length: 1,
+            direction: Direction::Transmit,
+        };
+
+        let guaranteed_time_slot_info = GuaranteedTimeSlotInformation {
+            permit: true,
+            slot_count: 1,
+            slots,
+        };
+
+        let mut short_addresses = [ShortAddress::broadcast(); 7];
+        short_addresses[0] = ShortAddress(0x7856);
+        let mut extended_addresses = [ExtendedAddress::broadcast(); 7];
+        extended_addresses[0] = ExtendedAddress(0xaec24a1c2116e260);
+
+        let pending_address = PendingAddress {
+            short_address_count: 1,
+            short_addresses,
+            extended_address_count: 1,
+            extended_addresses,
+        };
+
+        let beacon = Beacon {
+            superframe_spec,
+            guaranteed_time_slot_info,
+            pending_address,
+        };
+
+        let mut buffer = [0u8; 128];
+        let size = beacon.encode(&mut buffer);
+        assert_eq!(size, 18);
+        assert_eq!(buffer[..size], [0xff, 0xc0, 0x81, 0x01, 0x34, 0x12,
+            0x11, 0x11, 0x56, 0x78, 0x60, 0xe2, 0x16, 0x21, 0x1c, 0x4a,
+            0xc2, 0xae]);
     }
 }
