@@ -522,7 +522,7 @@ impl Beacon {
     ///
     /// # Errors
     ///
-    /// This function returns an error, if the bytes either don't are enough or
+    /// This function returns an error, if there aren't enough bytes or
     /// dont't contain valid data. Please refer to [`DecodeError`] for details.
     ///
     /// [`DecodeError`]: ../enum.DecodeError.html
