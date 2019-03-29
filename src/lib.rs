@@ -20,10 +20,10 @@
 //! [open an issue]: https://github.com/braun-robotics/rust-ieee802.15.4/issues
 //! [submit a pull request]: https://github.com/braun-robotics/rust-ieee802.15.4/pulls
 
-
 #![deny(missing_docs)]
-
 #![no_std]
 
-
+#[macro_use]
+mod utils;
 pub mod mac;
+
