@@ -1,3 +1,13 @@
+<a name="v0.3.0"></a>
+### v0.3.0 (2019-04-20)
+
+- Derive more useful traits for the various types ([#20])
+- Add support for beacons and MAC commands ([#21])
+
+[#20]: https://github.com/braun-robotics/rust-ieee802.15.4/pull/20
+[#21]: https://github.com/braun-robotics/rust-ieee802.15.4/pull/21
+
+
 <a name="v0.2.0"></a>
 ### v0.2.0 (2019-03-22)
 
