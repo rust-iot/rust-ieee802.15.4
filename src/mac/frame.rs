@@ -619,6 +619,14 @@ impl AddressMode {
 /// Personal Area Network Identifier
 ///
 /// A 16-bit value that identifies a PAN
+///
+/// # Example
+///
+/// ``` rust
+/// use ieee802154::mac::frame::PanId;
+///
+/// let pan_id = PanId(0x0123);
+/// ```
 #[derive(Clone, Copy, Debug, Eq, Hash, Hash32, PartialEq)]
 pub struct PanId(pub u16);
 
@@ -696,6 +704,14 @@ impl PanId {
 ///
 /// Short address assigned to a device during association, used to identify the
 /// device in the PAN.
+///
+/// # Example
+///
+/// ``` rust
+/// use ieee802154::mac::frame::ShortAddress;
+///
+/// let short_address = ShortAddress(0x0123);
+/// ```
 #[derive(Clone, Copy, Debug, Eq, Hash, Hash32, PartialEq)]
 pub struct ShortAddress(pub u16);
 
@@ -775,6 +791,14 @@ impl ShortAddress {
 /// A 64-bit extended address
 ///
 /// A unique address that is used to identify an device in the PAN.
+///
+/// # Example
+///
+/// ``` rust
+/// use ieee802154::mac::frame::ExtendedAddress;
+///
+/// let ext_address = ExtendedAddress(0x0123456789abcdef);
+/// ```
 #[derive(Clone, Copy, Debug, Eq, Hash, Hash32, PartialEq)]
 pub struct ExtendedAddress(pub u64);
 
