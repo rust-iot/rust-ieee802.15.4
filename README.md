@@ -1,4 +1,4 @@
-# Rust IEEE 802.15.4 [![crates.io](https://img.shields.io/crates/v/ieee802154.svg)](https://crates.io/crates/ieee802154) [![Documentation](https://docs.rs/ieee802154/badge.svg)](https://docs.rs/ieee802154) [![Build Status](https://travis-ci.com/braun-robotics/rust-ieee802.15.4.svg?branch=master)](https://travis-ci.com/braun-robotics/rust-ieee802.15.4)
+# Rust IEEE 802.15.4 [![crates.io](https://img.shields.io/crates/v/ieee802154.svg)](https://crates.io/crates/ieee802154) [![Documentation](https://docs.rs/ieee802154/badge.svg)](https://docs.rs/ieee802154) [![Build Status](https://travis-ci.com/braun-embedded/rust-ieee802.15.4.svg?branch=master)](https://travis-ci.com/braun-embedded/rust-ieee802.15.4)
 
 ## Introduction
 
@@ -28,8 +28,8 @@ This project is open source software, licensed under the terms of the [Zero Clau
 See [LICENSE] for full details.
 
 [Zero Clause BSD License]: https://opensource.org/licenses/FPL-1.0.0
-[LICENSE]: https://github.com/braun-robotics/ieee-802.15.4/blob/master/LICENSE
+[LICENSE]: https://github.com/braun-embedded/rust-ieee802.15.4/blob/master/LICENSE
 
 
-**Created by [Braun Robotics](https://braun-robotics.com/)** <br />
+**Created by [Braun Embedded](https://braun-embedded.com/)** <br />
 **Initial development sponsored by [Ferrous Systems](https://ferrous-systems.com/)**
