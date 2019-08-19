@@ -22,7 +22,7 @@ impl From<u8> for BeaconOrder {
     /// Convert u8 to beacon order
     fn from(value: u8) -> Self {
         match value {
-            0...14 => BeaconOrder::BeaconOrder(value),
+            0 ..= 14 => BeaconOrder::BeaconOrder(value),
             _ => BeaconOrder::OnDemand,
         }
     }
@@ -53,7 +53,7 @@ impl From<u8> for SuperframeOrder {
     /// Convert u8 to superframe order
     fn from(value: u8) -> Self {
         match value {
-            0...14 => SuperframeOrder::SuperframeOrder(value),
+            0 ..= 14 => SuperframeOrder::SuperframeOrder(value),
             _ => SuperframeOrder::Inactive,
         }
     }
