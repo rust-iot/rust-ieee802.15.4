@@ -346,6 +346,10 @@ impl Header {
             .ok_or(DecodeError::InvalidFrameVersion(frame_version))?;
         len += 2;
 
+        if buf.len() < 3 {
+            return Err(DecodeError::NotEnoughBytes);
+        }
+
         let seq = buf[len];
         len += 1;
 
