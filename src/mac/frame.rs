@@ -314,7 +314,7 @@ impl Header {
     /// ```
     pub fn decode(buf: &[u8]) -> Result<(Self, usize), DecodeError> {
         // First, make sure we have enough buffer for the Frame Control field
-        if buf.len() < 2 {
+        if buf.len() < 3 {
             return Err(DecodeError::NotEnoughBytes);
         }
 
