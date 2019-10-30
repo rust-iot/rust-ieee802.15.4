@@ -716,7 +716,10 @@ impl PanId {
 pub struct ShortAddress(pub u16);
 
 impl ShortAddress {
-    /// Creates an instance of `Address` that presents the broadcast address
+    /// An instance of `ShortAddress` that represents the broadcast address.
+    pub const BROADCAST: Self = ShortAddress(0xffff);
+
+    /// Creates an instance of `ShortAddress` that represents the broadcast address
     pub fn broadcast() -> Self {
         ShortAddress(0xffff)
     }
@@ -803,7 +806,10 @@ impl ShortAddress {
 pub struct ExtendedAddress(pub u64);
 
 impl ExtendedAddress {
-    /// Creates an instance of `Address` that presents the broadcast address
+    /// An instance of `ExtendedAddress` that represents the broadcast address.
+    pub const BROADCAST: Self = ExtendedAddress(0xffffffffffffffffu64);
+
+    /// Creates an instance of `ExtendedAddress` that represents the broadcast address
     pub fn broadcast() -> Self {
         ExtendedAddress(0xffffffffffffffffu64)
     }
