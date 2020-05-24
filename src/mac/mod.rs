@@ -1,21 +1,10 @@
 //! Partial implementation of the IEEE 802.15.4 MAC layer
 
-pub mod frame;
-pub mod command;
 pub mod beacon;
+pub mod command;
+pub mod frame;
 
 pub use frame::{
-    Address,
-    AddressMode,
-    DecodeError,
-    ExtendedAddress,
-    Frame,
-    FrameContent,
-    FrameType,
-    FrameVersion,
-    Header,
-    PanId,
-    Security,
-    ShortAddress,
-    WriteFooter,
+    Address, AddressMode, DecodeError, ExtendedAddress, Frame, FrameContent, FrameType,
+    FrameVersion, Header, PanId, Security, ShortAddress, WriteFooter,
 };

@@ -18,7 +18,7 @@ extended_enum!(
     DataRequest => 4,
     /// PAN identifier conflict notification, sent from coordinator to offending device
     PanIdConflictNotification => 5,
-    /// Orphan notification, 
+    /// Orphan notification,
     OrphanNotification => 6,
     /// Beacon request, sent from a device which want to join a PAN
     BeaconRequest => 7,

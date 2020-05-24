@@ -1,5 +1,5 @@
 //! Beacon
-//! 
+//!
 //! Work in progress
 
 use core::convert::From;
@@ -22,7 +22,7 @@ impl From<u8> for BeaconOrder {
     /// Convert u8 to beacon order
     fn from(value: u8) -> Self {
         match value {
-            0 ..= 14 => BeaconOrder::BeaconOrder(value),
+            0..=14 => BeaconOrder::BeaconOrder(value),
             _ => BeaconOrder::OnDemand,
         }
     }
@@ -53,7 +53,7 @@ impl From<u8> for SuperframeOrder {
     /// Convert u8 to superframe order
     fn from(value: u8) -> Self {
         match value {
-            0 ..= 14 => SuperframeOrder::SuperframeOrder(value),
+            0..=14 => SuperframeOrder::SuperframeOrder(value),
             _ => SuperframeOrder::Inactive,
         }
     }
@@ -329,7 +329,14 @@ impl GuaranteedTimeSlotInformation {
                 slots[n] = slot;
             }
         }
-        Ok((GuaranteedTimeSlotInformation { permit, slot_count, slots }, offset))
+        Ok((
+            GuaranteedTimeSlotInformation {
+                permit,
+                slot_count,
+                slots,
+            },
+            offset,
+        ))
     }
     /// Encode guaranteed time slot information into a byte buffer
     ///
@@ -502,7 +509,7 @@ impl PendingAddress {
         &self.extended_addresses[..self.extended_address_count]
     }
 }
- /// Beacon frame
+/// Beacon frame
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct Beacon {
     /// Superframe specification
@@ -624,15 +631,20 @@ mod tests {
         assert_eq!(beacon.pending_address.short_addresses().len(), 0);
         assert_eq!(beacon.pending_address.extended_addresses().len(), 0);
 
-        let data = [0x12, 0xc3, 0x82, 0x01, 0x34, 0x12, 0x11, 0x78, 0x56,
-            0x14, 0x00];
+        let data = [
+            0x12, 0xc3, 0x82, 0x01, 0x34, 0x12, 0x11, 0x78, 0x56, 0x14, 0x00,
+        ];
         let (beacon, size) = Beacon::decode(&data).unwrap();
         assert_eq!(size, 11);
 
-        assert_eq!(beacon.superframe_spec.beacon_order,
-            BeaconOrder::BeaconOrder(2));
-        assert_eq!(beacon.superframe_spec.superframe_order,
-            SuperframeOrder::SuperframeOrder(1));
+        assert_eq!(
+            beacon.superframe_spec.beacon_order,
+            BeaconOrder::BeaconOrder(2)
+        );
+        assert_eq!(
+            beacon.superframe_spec.superframe_order,
+            SuperframeOrder::SuperframeOrder(1)
+        );
         assert_eq!(beacon.superframe_spec.final_cap_slot, 3);
         assert_eq!(beacon.superframe_spec.battery_life_extension, false);
         assert_eq!(beacon.superframe_spec.pan_coordinator, true);
@@ -653,16 +665,21 @@ mod tests {
         assert_eq!(beacon.pending_address.short_addresses().len(), 0);
         assert_eq!(beacon.pending_address.extended_addresses().len(), 0);
 
-        let data = [0x12, 0xc3, 0x82, 0x02, 0x34, 0x12, 0x11, 0x78, 0x56,
-            0x14, 0x12, 0x34, 0x12, 0x78, 0x56, 0xef, 0xcd, 0xab, 0x89, 0x67,
-            0x45, 0x23, 0x01];
+        let data = [
+            0x12, 0xc3, 0x82, 0x02, 0x34, 0x12, 0x11, 0x78, 0x56, 0x14, 0x12, 0x34, 0x12, 0x78,
+            0x56, 0xef, 0xcd, 0xab, 0x89, 0x67, 0x45, 0x23, 0x01,
+        ];
         let (beacon, size) = Beacon::decode(&data).unwrap();
         assert_eq!(size, 23);
 
-        assert_eq!(beacon.superframe_spec.beacon_order,
-            BeaconOrder::BeaconOrder(2));
-        assert_eq!(beacon.superframe_spec.superframe_order,
-            SuperframeOrder::SuperframeOrder(1));
+        assert_eq!(
+            beacon.superframe_spec.beacon_order,
+            BeaconOrder::BeaconOrder(2)
+        );
+        assert_eq!(
+            beacon.superframe_spec.superframe_order,
+            SuperframeOrder::SuperframeOrder(1)
+        );
         assert_eq!(beacon.superframe_spec.final_cap_slot, 3);
         assert_eq!(beacon.superframe_spec.battery_life_extension, false);
         assert_eq!(beacon.superframe_spec.pan_coordinator, true);
@@ -681,18 +698,23 @@ mod tests {
         assert_eq!(slots[1].direction, Direction::Transmit);
 
         assert_eq!(beacon.pending_address.short_addresses().len(), 2);
-        assert_eq!(beacon.pending_address.short_addresses()[0],
-            ShortAddress(0x1234));
-        assert_eq!(beacon.pending_address.short_addresses()[1],
-            ShortAddress(0x5678));
+        assert_eq!(
+            beacon.pending_address.short_addresses()[0],
+            ShortAddress(0x1234)
+        );
+        assert_eq!(
+            beacon.pending_address.short_addresses()[1],
+            ShortAddress(0x5678)
+        );
         assert_eq!(beacon.pending_address.extended_addresses().len(), 1);
-        assert_eq!(beacon.pending_address.extended_addresses()[0],
-            ExtendedAddress(0x0123456789abcdef));
+        assert_eq!(
+            beacon.pending_address.extended_addresses()[0],
+            ExtendedAddress(0x0123456789abcdef)
+        );
     }
 
     #[test]
     fn encode_beacon() {
-
         let superframe_spec = SuperframeSpecification {
             beacon_order: BeaconOrder::OnDemand,
             superframe_order: SuperframeOrder::Inactive,
@@ -737,8 +759,12 @@ mod tests {
         let mut buffer = [0u8; 128];
         let size = beacon.encode(&mut buffer);
         assert_eq!(size, 18);
-        assert_eq!(buffer[..size], [0xff, 0xc0, 0x81, 0x01, 0x34, 0x12,
-            0x11, 0x11, 0x56, 0x78, 0x60, 0xe2, 0x16, 0x21, 0x1c, 0x4a,
-            0xc2, 0xae]);
+        assert_eq!(
+            buffer[..size],
+            [
+                0xff, 0xc0, 0x81, 0x01, 0x34, 0x12, 0x11, 0x11, 0x56, 0x78, 0x60, 0xe2, 0x16, 0x21,
+                0x1c, 0x4a, 0xc2, 0xae
+            ]
+        );
     }
 }

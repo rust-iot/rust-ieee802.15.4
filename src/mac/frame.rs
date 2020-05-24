@@ -8,10 +8,7 @@
 
 use core::mem::size_of_val;
 
-use byteorder::{
-    ByteOrder,
-    LittleEndian,
-};
+use byteorder::{ByteOrder, LittleEndian};
 use hash32_derive::Hash32;
 
 use crate::mac::beacon::Beacon;
@@ -114,8 +111,9 @@ impl<'p> Frame<'p> {
             let footer_pos = buf.len() - 2;
             footer.copy_from_slice(&buf[footer_pos..]);
             &buf[len..footer_pos]
-
-        } else { &buf[len..] };
+        } else {
+            &buf[len..]
+        };
 
         let (content, used) = FrameContent::decode(payload, &header)?;
 
@@ -199,7 +197,7 @@ impl<'p> Frame<'p> {
         len += self.content.encode(&mut buf[len..]);
 
         // Write payload
-        buf[len .. len+self.payload.len()].copy_from_slice(self.payload);
+        buf[len..len + self.payload.len()].copy_from_slice(self.payload);
         len += self.payload.len();
 
         // Write footer
@@ -320,19 +318,18 @@ impl Header {
 
         let mut len = 0;
 
-        let frame_type       = (buf[0] >> 0) & 0x7;
-        let security         = (buf[0] >> 3) & 0x1;
-        let frame_pending    = (buf[0] >> 4) & 0x1;
-        let ack_request      = (buf[0] >> 5) & 0x1;
-        let pan_id_compress  = (buf[0] >> 6) & 0x1;
-        let dest_addr_mode   = (buf[1] >> 2) & 0x3;
-        let frame_version    = (buf[1] >> 4) & 0x3;
+        let frame_type = (buf[0] >> 0) & 0x7;
+        let security = (buf[0] >> 3) & 0x1;
+        let frame_pending = (buf[0] >> 4) & 0x1;
+        let ack_request = (buf[0] >> 5) & 0x1;
+        let pan_id_compress = (buf[0] >> 6) & 0x1;
+        let dest_addr_mode = (buf[1] >> 2) & 0x3;
+        let frame_version = (buf[1] >> 4) & 0x3;
         let source_addr_mode = (buf[1] >> 6) & 0x3;
 
-        let frame_type = FrameType::from_bits(frame_type)
-            .ok_or(DecodeError::InvalidFrameType(frame_type))?;
-        let security = Security::from_bits(security)
-            .ok_or(DecodeError::SecurityNotSupported)?;
+        let frame_type =
+            FrameType::from_bits(frame_type).ok_or(DecodeError::InvalidFrameType(frame_type))?;
+        let security = Security::from_bits(security).ok_or(DecodeError::SecurityNotSupported)?;
         let frame_pending = frame_pending == 0b1;
         let ack_request = ack_request == 0b1;
         let pan_id_compress = pan_id_compress == 0x01;
@@ -357,13 +354,11 @@ impl Header {
             len += addr_len;
             source
         } else {
-            let pan_id = destination.pan_id()
+            let pan_id = destination
+                .pan_id()
                 .ok_or(DecodeError::InvalidAddressMode(dest_addr_mode as u8))?;
-            let (source, addr_len) = Address::decode_compress(
-                &buf[len..],
-                &source_addr_mode,
-                pan_id,
-            )?;
+            let (source, addr_len) =
+                Address::decode_compress(&buf[len..], &source_addr_mode, pan_id)?;
             len += addr_len;
             source
         };
@@ -508,11 +503,10 @@ impl FrameType {
             0b001 => Some(FrameType::Data),
             0b010 => Some(FrameType::Acknowledgement),
             0b011 => Some(FrameType::MacCommand),
-            _     => None,
+            _ => None,
         }
     }
 }
-
 
 /// Defines whether an auxiliary security header is present in the MAC header
 ///
@@ -942,11 +936,9 @@ impl Address {
     }
 }
 
-
 /// Content of a frame
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum FrameContent
-{
+pub enum FrameContent {
     /// Beacon frame content
     Beacon(Beacon),
     /// Data frame
@@ -965,12 +957,8 @@ impl FrameContent {
                 let (beacon, used) = Beacon::decode(buf)?;
                 Ok((FrameContent::Beacon(beacon), used))
             }
-            FrameType::Data => {
-                Ok((FrameContent::Data, 0))
-            }
-            FrameType::Acknowledgement => {
-                Ok((FrameContent::Acknowledgement, 0))
-            }
+            FrameType::Data => Ok((FrameContent::Data, 0)),
+            FrameType::Acknowledgement => Ok((FrameContent::Acknowledgement, 0)),
             FrameType::MacCommand => {
                 let (command, used) = Command::decode(buf)?;
                 Ok((FrameContent::Command(command), used))
@@ -980,18 +968,11 @@ impl FrameContent {
     /// Encode frame content into byte buffer
     pub fn encode(&self, buf: &mut [u8]) -> usize {
         match self {
-            FrameContent::Beacon(beacon) => {
-                beacon.encode(buf)
-            }
-            FrameContent::Data | FrameContent::Acknowledgement => {
-                0
-            }
-            FrameContent::Command(command) => {
-                command.encode(buf)
-            }
+            FrameContent::Beacon(beacon) => beacon.encode(buf),
+            FrameContent::Data | FrameContent::Acknowledgement => 0,
+            FrameContent::Command(command) => command.encode(buf),
         }
     }
-
 }
 
 /// Signals an error that occured while decoding bytes
@@ -1013,7 +994,7 @@ pub enum DecodeError {
     InvalidFrameVersion(u8),
 
     /// The data stream contains an invalid value
-    InvalidValue
+    InvalidValue,
 }
 
 #[cfg(test)]
@@ -1122,7 +1103,7 @@ mod tests {
                 source: Address::Short(PanId(0x4321), ShortAddress(0x9abc)),
                 seq: 0xff,
             },
-            content: FrameContent::Beacon( beacon::Beacon {
+            content: FrameContent::Beacon(beacon::Beacon {
                 superframe_spec: beacon::SuperframeSpecification {
                     beacon_order: beacon::BeaconOrder::OnDemand,
                     superframe_order: beacon::SuperframeOrder::Inactive,
@@ -1133,7 +1114,7 @@ mod tests {
                 },
                 guaranteed_time_slot_info: beacon::GuaranteedTimeSlotInformation::new(),
                 pending_address: beacon::PendingAddress::new(),
-            } ),
+            }),
             payload: &[0xde, 0xf0],
             footer: [0x00, 0x00],
         };
@@ -1205,5 +1186,4 @@ mod tests {
             [0x23, 0xa0, 0xff, 0x34, 0x12, 0xbc, 0x9a, 0x04]
         );
     }
-
 }
