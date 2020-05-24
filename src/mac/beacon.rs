@@ -143,7 +143,6 @@ impl SuperframeSpecification {
     /// # Panics
     ///
     /// Panics if the buffer is not long enough to hold the frame.
-    ///
     pub fn encode(&self, buf: &mut [u8]) -> usize {
         let bo = u8::from(self.beacon_order.clone());
         let so = u8::from(self.superframe_order.clone());
@@ -242,7 +241,6 @@ impl GuaranteedTimeSlotDescriptor {
     /// # Panics
     ///
     /// Panics if the buffer is not long enough to hold the frame.
-    ///
     pub fn encode(&self, buf: &mut [u8]) -> usize {
         let size = self.short_address.encode(&mut buf[..2]);
         buf[size] = self.starting_slot | self.length << 4;
@@ -347,7 +345,6 @@ impl GuaranteedTimeSlotInformation {
     /// # Panics
     ///
     /// Panics if the buffer is not long enough to hold the frame.
-    ///
     pub fn encode(&self, buf: &mut [u8]) -> usize {
         assert!(self.slot_count <= 7);
         let mut size = 1usize; // header byte
@@ -400,7 +397,6 @@ const EXTENDED_MASK: u8 = 0b0111_0000;
 /// +-------------+----------+----------------+----------+
 ///      0 - 2         3         4 - 6             7        bit
 /// ```
-///
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct PendingAddress {
     short_address_count: usize,
@@ -478,7 +474,6 @@ impl PendingAddress {
     /// # Panics
     ///
     /// Panics if the buffer is not long enough to hold the frame.
-    ///
     pub fn encode(&self, buf: &mut [u8]) -> usize {
         assert!(self.short_address_count <= 7);
         assert!(self.extended_address_count <= 7);
@@ -561,7 +556,6 @@ impl Beacon {
     /// # Panics
     ///
     /// Panics if the buffer is not long enough to hold the frame.
-    ///
     pub fn encode(&self, buf: &mut [u8]) -> usize {
         let size = self.superframe_spec.encode(buf);
         let mut offset = size;

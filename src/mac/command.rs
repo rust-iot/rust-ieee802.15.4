@@ -185,7 +185,6 @@ impl CoordinatorRealignmentData {
     /// # Panics
     ///
     /// Panics if the buffer is not long enough to hold the frame.
-    ///
     pub fn encode(&self, buf: &mut [u8]) -> usize {
         let mut offset = 0;
         let size = self.pan_id.encode(buf);
@@ -345,7 +344,6 @@ impl Command {
     /// # Panics
     ///
     /// Panics if the buffer is not long enough to hold the frame.
-    ///
     pub fn encode(&self, buf: &mut [u8]) -> usize {
         match *self {
             Command::AssociationRequest(capability) => {
