@@ -5,6 +5,8 @@ pub mod command;
 pub mod frame;
 
 pub use frame::{
-    Address, AddressMode, DecodeError, ExtendedAddress, Frame, FrameContent, FrameType,
-    FrameVersion, Header, PanId, Security, ShortAddress, WriteFooter,
+    Address, DecodeError, ExtendedAddress, Frame, FrameContent, Header, PanId, ShortAddress,
+    WriteFooter,
 };
+
+pub use frame::frame_control::{AddressMode, FrameType, FrameVersion};
