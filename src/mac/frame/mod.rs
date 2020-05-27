@@ -6,6 +6,11 @@
 //!
 //! [Frame]: struct.Frame.html
 
+// TODO:
+// - change &mut [u8] -> bytes::BufMut
+// - change &[u8] => bytes::Buf
+// - remove one variant enums
+
 use core::mem::size_of_val;
 
 use byteorder::{ByteOrder, LittleEndian};
@@ -133,14 +138,6 @@ impl<'p> Frame<'p> {
 
     /// Encodes the frame into a buffer
     ///
-    /// Returns the number of bytes written to the buffer.
-    ///
-    /// # Panics
-    ///
-    /// Panics, if the buffer is not long enough to hold the frame. If you
-    /// believe that this behavior is inappropriate, please leave your feedback
-    /// on the [issue tracker].
-    ///
     /// # Example
     ///
     /// ``` rust
@@ -189,26 +186,20 @@ impl<'p> Frame<'p> {
     /// ];
     /// assert_eq!(bytes[..expected_bytes.len()], expected_bytes[..]);
     /// ```
-    ///
-    /// [issue tracker]: https://github.com/braun-robotics/ieee-802.15.4/issues/9
-    pub fn encode(&self, buf: &mut [u8], write_footer: WriteFooter) -> usize {
-        let mut len = 0;
-
+    pub fn encode(&self, buf: &mut dyn BufMut, write_footer: WriteFooter) {
         // Write header
-        len += self.header.encode(&mut buf[len..]);
+        self.header.encode(buf);
 
         // Write content
-        len += self.content.encode(&mut buf[len..]);
+        self.content.encode(buf);
 
         // Write payload
-        buf[len..len + self.payload.len()].copy_from_slice(self.payload);
-        len += self.payload.len();
+        buf.put_slice(self.payload);
 
         // Write footer
         match write_footer {
             WriteFooter::No => (),
         }
-        len
     }
 }
 
@@ -344,16 +335,6 @@ impl Header {
 
     /// Encodes the header into a buffer
     ///
-    /// Returns the number of bytes written to the buffer.
-    ///
-    /// # Panics
-    ///
-    /// Panics, if the buffer is not long enough to hold the header. If you
-    /// believe that this behavior is inappropriate, please leave your feedback
-    /// on the [issue tracker]. Will also panic if the destination PAN
-    /// identifier differs from the source PAN identifier when using PAN
-    /// identifier compress.
-    ///
     /// The header length depends on the options chosen and varies between 3 and
     /// 30 octets.
     ///
@@ -395,30 +376,22 @@ impl Header {
     /// ];
     /// assert_eq!(bytes[..expected_bytes.len()], expected_bytes[..]);
     /// ```
-    ///
-    /// [issue tracker]: https://github.com/braun-robotics/ieee-802.15.4/issues/9
-    pub fn encode(&self, mut buf: &mut [u8]) -> usize {
+    pub fn encode(&self, buf: &mut dyn BufMut) {
         let frame_control_raw = self.frame_control.to_bits();
-        let mut len = 0;
 
-        // Write Frame Control
-        LittleEndian::write_u16(buf, frame_control_raw);
-        len += size_of_val(&frame_control_raw);
+        buf.put_u16_le(frame_control_raw);
 
         // Write Sequence Number
-        buf[len] = self.seq;
-        len += size_of_val(&self.seq);
+        buf.put_u8(self.seq);
 
         // Write addresses
-        len += self.destination.encode(&mut buf[len..]);
-        len += if self.frame_control.pan_id_compress {
+        self.destination.encode(buf);
+        if self.frame_control.pan_id_compress {
             assert_eq!(self.destination.pan_id(), self.source.pan_id());
-            self.source.encode_compress(&mut buf[len..])
+            self.source.encode_compress(buf)
         } else {
-            self.source.encode(&mut buf[len..])
+            self.source.encode(buf)
         };
-
-        len
     }
 }
 
@@ -477,14 +450,6 @@ impl PanId {
 
     /// Encodes the PAN identifier into a buffer
     ///
-    /// Returns the number of bytes written to the buffer.
-    ///
-    /// # Panics
-    ///
-    /// Panics, if the buffer is less than 2 bytes long. If you believe that
-    /// this behavior is inappropriate, please leave your feedback on the
-    /// [issue tracker].
-    ///
     /// # Example
     ///
     /// ``` rust
@@ -498,11 +463,8 @@ impl PanId {
     /// let expected_bytes = [0x34, 0x12];
     /// assert_eq!(bytes[..expected_bytes.len()], expected_bytes[..]);
     /// ```
-    ///
-    /// [issue tracker]: https://github.com/braun-robotics/ieee-802.15.4/issues/9
-    pub fn encode(&self, buf: &mut [u8]) -> usize {
-        LittleEndian::write_u16(buf, self.0);
-        size_of_val(&self.0)
+    pub fn encode(&self, buf: &mut dyn BufMut) {
+        buf.put_u16_le(self.0)
     }
 }
 
@@ -568,14 +530,6 @@ impl ShortAddress {
 
     /// Encodes the address into a buffer
     ///
-    /// Returns the number of bytes written to the buffer.
-    ///
-    /// # Panics
-    ///
-    /// Panics, if the buffer is less than 2 bytes long. If you believe that
-    /// this behavior is inappropriate, please leave your feedback on the
-    /// [issue tracker].
-    ///
     /// # Example
     ///
     /// ``` rust
@@ -589,11 +543,8 @@ impl ShortAddress {
     /// let expected_bytes = [0x78, 0x56];
     /// assert_eq!(bytes[..expected_bytes.len()], expected_bytes[..]);
     /// ```
-    ///
-    /// [issue tracker]: https://github.com/braun-robotics/ieee-802.15.4/issues/9
-    pub fn encode(&self, buf: &mut [u8]) -> usize {
-        LittleEndian::write_u16(buf, self.0);
-        size_of_val(&self.0)
+    pub fn encode(&self, buf: &mut dyn BufMut) {
+        buf.put_u16_le(self.0)
     }
 }
 
@@ -630,9 +581,8 @@ impl ExtendedAddress {
     }
 
     /// Encodes the address into a buffer
-    pub fn encode(&self, buf: &mut [u8]) -> usize {
-        LittleEndian::write_u64(buf, self.0);
-        size_of_val(&self.0)
+    pub fn encode(&self, buf: &mut dyn BufMut) {
+        buf.put_u64_le(self.0)
     }
 }
 
@@ -704,26 +654,24 @@ impl Address {
     }
 
     /// Encodes the address into a buffer
-    pub fn encode(&self, buf: &mut [u8]) -> usize {
+    pub fn encode(&self, buf: &mut dyn BufMut) {
         match *self {
-            Address::None => 0,
-            Address::Short(i, a) => {
-                let pan_id_size = i.encode(buf);
-                let address_size = a.encode(&mut buf[pan_id_size..]);
-                pan_id_size + address_size
+            Address::None => (),
+            Address::Short(pan_id, short) => {
+                pan_id.encode(buf);
+                short.encode(buf);
             }
-            Address::Extended(i, a) => {
-                let pan_id_size = i.encode(buf);
-                let address_size = a.encode(&mut buf[pan_id_size..]);
-                pan_id_size + address_size
+            Address::Extended(pan_id, extended) => {
+                pan_id.encode(buf);
+                extended.encode(buf);
             }
         }
     }
 
     /// Encodes the address into a buffer
-    pub fn encode_compress(&self, buf: &mut [u8]) -> usize {
+    pub fn encode_compress(&self, buf: &mut dyn BufMut) {
         match *self {
-            Address::None => 0,
+            Address::None => (),
             Address::Short(_, a) => a.encode(buf),
             Address::Extended(_, a) => a.encode(buf),
         }
@@ -778,10 +726,10 @@ impl FrameContent {
         }
     }
     /// Encode frame content into byte buffer
-    pub fn encode(&self, buf: &mut [u8]) -> usize {
+    pub fn encode(&self, buf: &mut dyn BufMut) {
         match self {
             FrameContent::Beacon(beacon) => beacon.encode(buf),
-            FrameContent::Data | FrameContent::Acknowledgement => 0,
+            FrameContent::Data | FrameContent::Acknowledgement => (),
             FrameContent::Command(command) => command.encode(buf),
         }
     }
@@ -900,7 +848,10 @@ mod tests {
             footer: [0x00, 0x00],
         };
         let mut buf = [0u8; 32];
-        let size = frame.encode(&mut buf, WriteFooter::No);
+        let buf_len = buf.len();
+        let mut sliced_buf = &mut buf[..];
+        frame.encode(&mut sliced_buf, WriteFooter::No);
+        let size = buf_len - sliced_buf.len();
         assert_eq!(size, 13);
         assert_eq!(
             buf[..size],

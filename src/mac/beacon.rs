@@ -7,6 +7,8 @@ use core::mem;
 
 use crate::mac::{DecodeError, ExtendedAddress, ShortAddress};
 
+use bytes::BufMut;
+
 /// Beacon order is used to calculate the beacon interval
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum BeaconOrder {
@@ -134,19 +136,12 @@ impl SuperframeSpecification {
             DATA_SIZE,
         ))
     }
+
     /// Encode superframe specification into a byte buffer
-    ///
-    /// # Returns
-    ///
-    /// Returns the number of bytes written to the buffer
-    ///
-    /// # Panics
-    ///
-    /// Panics if the buffer is not long enough to hold the frame.
-    pub fn encode(&self, buf: &mut [u8]) -> usize {
+    pub fn encode(&self, buf: &mut dyn BufMut) {
         let bo = u8::from(self.beacon_order.clone());
         let so = u8::from(self.superframe_order.clone());
-        buf[0] = (bo & 0x0f) | (so << 4);
+        buf.put_u8((bo & 0x0f) | (so << 4));
         let ble = if self.battery_life_extension {
             BATTERY_LIFE_EXTENSION
         } else {
@@ -162,8 +157,7 @@ impl SuperframeSpecification {
         } else {
             0
         };
-        buf[1] = self.final_cap_slot & 0x0f | ble | pc | ap;
-        2
+        buf.put_u8(self.final_cap_slot & 0x0f | ble | pc | ap);
     }
 }
 
@@ -232,19 +226,11 @@ impl GuaranteedTimeSlotDescriptor {
             DATA_SIZE,
         ))
     }
+
     /// Encode guaranteed time slot descriptor into byte buffer
-    ///
-    /// # Returns
-    ///
-    /// Returns the number of bytes written to the buffer
-    ///
-    /// # Panics
-    ///
-    /// Panics if the buffer is not long enough to hold the frame.
-    pub fn encode(&self, buf: &mut [u8]) -> usize {
-        let size = self.short_address.encode(&mut buf[..2]);
-        buf[size] = self.starting_slot | self.length << 4;
-        size + 1
+    pub fn encode(&self, buf: &mut dyn BufMut) {
+        self.short_address.encode(buf);
+        buf.put_u8(self.starting_slot | self.length << 4);
     }
 }
 
@@ -337,38 +323,36 @@ impl GuaranteedTimeSlotInformation {
         ))
     }
     /// Encode guaranteed time slot information into a byte buffer
-    ///
-    /// # Returns
-    ///
-    /// Returns the number of bytes written to the buffer
-    ///
-    /// # Panics
-    ///
-    /// Panics if the buffer is not long enough to hold the frame.
-    pub fn encode(&self, buf: &mut [u8]) -> usize {
+    pub fn encode(&self, buf: &mut dyn BufMut) {
         assert!(self.slot_count <= 7);
-        let mut size = 1usize; // header byte
         let permit = if self.permit { PERMIT } else { 0 };
-        buf[0] = ((self.slot_count as u8) & COUNT_MASK) | permit;
+
+        let header = ((self.slot_count as u8) & COUNT_MASK) | permit;
+        buf.put_u8(header);
+
         if self.slot_count > 0 {
-            size += 1; // direction field
-            let mut dir = 0x01;
-            let mut direction_mask = 0u8;
-            let mut piece = &mut buf[2..];
+            let direction_mask = {
+                let mut dir = 0x01;
+                let mut direction_mask = 0u8;
+                for n in 0..self.slot_count {
+                    let slot = self.slots[n];
+                    if slot.direction_transmit() {
+                        direction_mask = direction_mask | dir;
+                    }
+                    dir = dir << 1;
+                }
+                direction_mask
+            };
+
+            buf.put_u8(direction_mask);
+
             for n in 0..self.slot_count {
                 let slot = self.slots[n];
-                let slot_size = slot.encode(piece);
-                size += slot_size;
-                piece = &mut piece[3..];
-                if slot.direction_transmit() {
-                    direction_mask = direction_mask | dir;
-                }
-                dir = dir << 1;
+                slot.encode(buf);
             }
-            buf[1] = direction_mask;
         }
-        size
     }
+
     /// Get the slots as a slice
     pub fn slots(&self) -> &[GuaranteedTimeSlotDescriptor] {
         &self.slots[..self.slot_count]
@@ -466,34 +450,25 @@ impl PendingAddress {
         ))
     }
     /// Encode pending address into byte buffer
-    ///
-    /// # Returns
-    ///
-    /// Returns the number of bytes written to the buffer
-    ///
-    /// # Panics
-    ///
-    /// Panics if the buffer is not long enough to hold the frame.
-    pub fn encode(&self, buf: &mut [u8]) -> usize {
+    pub fn encode(&self, buf: &mut dyn BufMut) {
         assert!(self.short_address_count <= 7);
         assert!(self.extended_address_count <= 7);
-        let ss = mem::size_of::<ShortAddress>();
-        let es = mem::size_of::<ExtendedAddress>();
+
         let sl = self.short_address_count;
         let el = self.extended_address_count;
-        buf[0] = (((el as u8) << 4) & EXTENDED_MASK) | ((sl as u8) & SHORT_MASK);
-        let mut piece = &mut buf[1..];
+
+        let it_s_magic = (((el as u8) << 4) & EXTENDED_MASK) | ((sl as u8) & SHORT_MASK); //FIXME give variable meaningful name
+        buf.put_u8(it_s_magic);
+
         for n in 0..self.short_address_count {
             let addr = self.short_addresses[n];
-            addr.encode(piece);
-            piece = &mut piece[ss..];
+            addr.encode(buf);
         }
+
         for n in 0..self.extended_address_count {
             let addr = self.extended_addresses[n];
-            addr.encode(piece);
-            piece = &mut piece[es..];
+            addr.encode(buf);
         }
-        1 + sl * ss + sl * es
     }
     /// Get the short addresses
     pub fn short_addresses(&self) -> &[ShortAddress] {
@@ -547,23 +522,12 @@ impl Beacon {
             offset,
         ))
     }
+
     /// Encode beacon frame into byte buffer
-    ///
-    /// # Returns
-    ///
-    /// Returns the number of bytes written to the buffer
-    ///
-    /// # Panics
-    ///
-    /// Panics if the buffer is not long enough to hold the frame.
-    pub fn encode(&self, buf: &mut [u8]) -> usize {
-        let size = self.superframe_spec.encode(buf);
-        let mut offset = size;
-        let size = self.guaranteed_time_slot_info.encode(&mut buf[offset..]);
-        offset += size;
-        let size = self.pending_address.encode(&mut buf[offset..]);
-        offset += size;
-        offset
+    pub fn encode(&self, buf: &mut dyn BufMut) {
+        self.superframe_spec.encode(buf);
+        self.guaranteed_time_slot_info.encode(buf);
+        self.pending_address.encode(buf);
     }
 }
 
@@ -750,8 +714,11 @@ mod tests {
             pending_address,
         };
 
-        let mut buffer = [0u8; 128];
-        let size = beacon.encode(&mut buffer);
+        const BUFFER_SIZE: usize = 128;
+        let mut buffer = [0u8; BUFFER_SIZE];
+        let mut sliced_buffer = &mut buffer[..];
+        beacon.encode(&mut sliced_buffer);
+        let size = BUFFER_SIZE - sliced_buffer.len();
         assert_eq!(size, 18);
         assert_eq!(
             buffer[..size],
