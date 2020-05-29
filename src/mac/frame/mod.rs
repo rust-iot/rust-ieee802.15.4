@@ -109,24 +109,34 @@ impl<'p> Frame<'p> {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn decode(buf: &'p [u8], contains_footer: bool) -> Result<Self, DecodeError> {
-        let (header, len) = Header::decode(buf)?;
+    pub fn decode(mut buf: &'p [u8], contains_footer: bool) -> Result<Self, DecodeError> {
+        let orginal_buf = buf;
+
+        let header = Header::decode(&mut buf)?;
+
+        let content = FrameContent::decode(&mut buf, &header)?;
+
+        let taken_bytes = orginal_buf.len() - buf.remaining();
+        let payload_with_footer = &orginal_buf[taken_bytes..];
+
+        if payload_with_footer.len() != buf.remaining() {
+            panic!(
+                "Noncontinuous Buf implementation aren't supported. Consider use `bytes::Bytes`"
+            );
+        }
+        buf.advance(buf.remaining());
 
         let mut footer = [0; 2];
         let payload = if contains_footer {
-            if buf[len..].len() < 2 {
+            if payload_with_footer.len() < 2 {
                 return Err(DecodeError::NotEnoughBytes);
             }
-            let footer_pos = buf.len() - 2;
-            footer.copy_from_slice(&buf[footer_pos..]);
-            &buf[len..footer_pos]
+            let footer_pos = payload_with_footer.len() - 2;
+            footer.copy_from_slice(&payload_with_footer[footer_pos..]);
+            &payload_with_footer[..footer_pos]
         } else {
-            &buf[len..]
+            payload_with_footer
         };
-
-        let (content, used) = FrameContent::decode(payload, &header)?;
-
-        let payload = &payload[used..];
 
         Ok(Frame {
             header,
@@ -294,33 +304,25 @@ impl Header {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn decode(mut buf: &[u8]) -> Result<(Self, usize), DecodeError> {
+    pub fn decode(buf: &mut dyn Buf) -> Result<Self, DecodeError> {
         // First, make sure we have enough buffer for the Frame Control field
-        if buf.len() < 3 {
+        if buf.remaining() < 3 {
             return Err(DecodeError::NotEnoughBytes);
         }
-
-        let copy_of_buf = buf.clone();
 
         let fctl = FrameControl::try_from_bits(buf.get_u16_le())?;
 
         let seq = buf.get_u8();
 
-        let (destination, addr_len) = Address::decode(&buf.bytes(), &fctl.dest_addr_mode)?;
-        buf.advance(addr_len);
+        let destination = Address::decode(buf, &fctl.dest_addr_mode)?;
 
         let source = if !fctl.pan_id_compress {
-            let (source, addr_len) = Address::decode(&buf.bytes(), &fctl.src_addr_mode)?;
-            buf.advance(addr_len);
-            source
+            Address::decode(buf, &fctl.src_addr_mode)?
         } else {
             let pan_id = destination
                 .pan_id()
                 .ok_or(DecodeError::InvalidAddressMode(fctl.dest_addr_mode.as_u8()))?;
-            let (source, addr_len) =
-                Address::decode_compress(&buf.bytes(), &fctl.src_addr_mode, pan_id)?;
-            buf.advance(addr_len);
-            source
+            Address::decode_compress(buf, &fctl.src_addr_mode, pan_id)?
         };
 
         let header = Header {
@@ -330,7 +332,7 @@ impl Header {
             source,
         };
 
-        Ok((header, copy_of_buf.remaining() - buf.remaining()))
+        Ok(header)
     }
 
     /// Encodes the header into a buffer
@@ -437,15 +439,12 @@ impl PanId {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn decode(buf: &[u8]) -> Result<(Self, usize), DecodeError> {
-        if buf.len() < 2 {
+    pub fn decode(buf: &mut dyn Buf) -> Result<Self, DecodeError> {
+        if buf.remaining() < 2 {
             return Err(DecodeError::NotEnoughBytes);
         }
 
-        let pan_id = LittleEndian::read_u16(buf);
-        let len = size_of_val(&pan_id);
-
-        Ok((PanId(pan_id), len))
+        Ok(PanId(buf.get_u16_le()))
     }
 
     /// Encodes the PAN identifier into a buffer
@@ -518,14 +517,12 @@ impl ShortAddress {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn decode(buf: &[u8]) -> Result<(Self, usize), DecodeError> {
-        if buf.len() < 2 {
+    pub fn decode(buf: &mut dyn Buf) -> Result<Self, DecodeError> {
+        if buf.remaining() < 2 {
             return Err(DecodeError::NotEnoughBytes);
         }
 
-        let addr = LittleEndian::read_u16(&buf);
-
-        Ok((ShortAddress(addr), size_of_val(&addr)))
+        Ok(ShortAddress(buf.get_u16_le()))
     }
 
     /// Encodes the address into a buffer
@@ -572,12 +569,11 @@ impl ExtendedAddress {
     }
 
     /// Decodes an address from a byte buffer
-    pub fn decode(buf: &[u8]) -> Result<(Self, usize), DecodeError> {
-        if buf.len() < 8 {
+    pub fn decode(buf: &mut dyn Buf) -> Result<Self, DecodeError> {
+        if buf.remaining() < 8 {
             return Err(DecodeError::NotEnoughBytes);
         }
-        let addr = LittleEndian::read_u64(&buf);
-        Ok((ExtendedAddress(addr), size_of_val(&addr)))
+        Ok(ExtendedAddress(buf.get_u64_le()))
     }
 
     /// Encodes the address into a buffer
@@ -610,47 +606,41 @@ impl Address {
     }
 
     /// Decodes an address from a byte buffer
-    pub fn decode(buf: &[u8], mode: &AddressMode) -> Result<(Self, usize), DecodeError> {
-        let (address, len) = match mode {
-            AddressMode::None => (Address::None, 0),
+    pub fn decode(buf: &mut dyn Buf, mode: &AddressMode) -> Result<Self, DecodeError> {
+        let opt_address = match mode {
+            AddressMode::None => Address::None,
             AddressMode::Short => {
-                let mut length = 0;
-                let (i, l) = PanId::decode(buf)?;
-                length += l;
-                let (a, l) = ShortAddress::decode(&buf[l..])?;
-                length += l;
-                (Address::Short(i, a), length)
+                let pan_id = PanId::decode(buf)?;
+                let short = ShortAddress::decode(buf)?;
+                Address::Short(pan_id, short)
             }
             AddressMode::Extended => {
-                let mut length = 0;
-                let (i, l) = PanId::decode(buf)?;
-                length += l;
-                let (a, l) = ExtendedAddress::decode(&buf[l..])?;
-                length += l;
-                (Address::Extended(i, a), length)
+                let pan_id = PanId::decode(buf)?;
+                let extended = ExtendedAddress::decode(buf)?;
+                Address::Extended(pan_id, extended)
             }
         };
-        Ok((address, len))
+        Ok(opt_address)
     }
 
     /// Decodes an address from a byte buffer
     pub fn decode_compress(
-        buf: &[u8],
+        buf: &mut dyn Buf,
         mode: &AddressMode,
         pan_id: PanId,
-    ) -> Result<(Self, usize), DecodeError> {
-        let (address, len) = match mode {
-            AddressMode::None => (Address::None, 0),
+    ) -> Result<Self, DecodeError> {
+        let opt_address = match mode {
+            AddressMode::None => Address::None,
             AddressMode::Short => {
-                let (a, l) = ShortAddress::decode(buf)?;
-                (Address::Short(pan_id, a), l)
+                let short = ShortAddress::decode(buf)?;
+                Address::Short(pan_id, short)
             }
             AddressMode::Extended => {
-                let (a, l) = ExtendedAddress::decode(buf)?;
-                (Address::Extended(pan_id, a), l)
+                let extended = ExtendedAddress::decode(buf)?;
+                Address::Extended(pan_id, extended)
             }
         };
-        Ok((address, len))
+        Ok(opt_address)
     }
 
     /// Encodes the address into a buffer
@@ -711,17 +701,17 @@ pub enum FrameContent {
 
 impl FrameContent {
     /// Decode frame content from byte buffer
-    pub fn decode(buf: &[u8], header: &Header) -> Result<(Self, usize), DecodeError> {
+    pub fn decode(buf: &mut dyn Buf, header: &Header) -> Result<Self, DecodeError> {
         match header.frame_control.frame_type {
             FrameType::Beacon => {
-                let (beacon, used) = Beacon::decode(buf)?;
-                Ok((FrameContent::Beacon(beacon), used))
+                let beacon = Beacon::decode(buf)?;
+                Ok(FrameContent::Beacon(beacon))
             }
-            FrameType::Data => Ok((FrameContent::Data, 0)),
-            FrameType::Acknowledgement => Ok((FrameContent::Acknowledgement, 0)),
+            FrameType::Data => Ok(FrameContent::Data),
+            FrameType::Acknowledgement => Ok(FrameContent::Acknowledgement),
             FrameType::MacCommand => {
-                let (command, used) = Command::decode(buf)?;
-                Ok((FrameContent::Command(command), used))
+                let command = Command::decode(buf)?;
+                Ok(FrameContent::Command(command))
             }
         }
     }
@@ -769,7 +759,8 @@ mod tests {
         let data = [
             0x41, 0x88, 0x91, 0x8f, 0x20, 0xff, 0xff, 0x33, 0x44, 0x00, 0x00,
         ];
-        let frame = Frame::decode(&data, true).unwrap();
+        let mut sliced_data = &data[..];
+        let frame = Frame::decode(&mut sliced_data, true).unwrap();
         let fctl = frame.header.frame_control;
         assert_eq!(fctl.frame_type, FrameType::Data);
         assert_eq!(fctl.security, false);
@@ -793,7 +784,8 @@ mod tests {
         let data = [
             0x41, 0x80, 0x91, 0x8f, 0x20, 0xff, 0xff, 0x33, 0x44, 0x00, 0x00,
         ];
-        let frame = Frame::decode(&data, true);
+        let mut sliced_data = &data[..];
+        let frame = Frame::decode(&mut sliced_data, true);
         assert!(frame.is_err());
         if let Err(e) = frame {
             assert_eq!(e, DecodeError::InvalidAddressMode(0))
@@ -806,7 +798,8 @@ mod tests {
             0x21, 0xc8, 0x8b, 0xff, 0xff, 0x02, 0x00, 0x23, 0x00, 0x60, 0xe2, 0x16, 0x21, 0x1c,
             0x4a, 0xc2, 0xae, 0xaa, 0xbb, 0xcc,
         ];
-        let frame = Frame::decode(&data, true).unwrap();
+        let mut sliced_data = &data[..];
+        let frame = Frame::decode(&sliced_data, true).unwrap();
         let fctl = frame.header.frame_control;
         assert_eq!(fctl.frame_type, FrameType::Data);
         assert_eq!(fctl.security, false);

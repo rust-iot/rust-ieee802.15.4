@@ -5,7 +5,7 @@
 use crate::mac::{DecodeError, PanId, ShortAddress};
 use crate::utils::OptionalFrom;
 
-use bytes::BufMut;
+use bytes::{Buf, BufMut};
 
 extended_enum!(
     /// MAC command identifiers
@@ -148,35 +148,26 @@ impl CoordinatorRealignmentData {
     ///
     /// [`DecodeError`]: ../enum.DecodeError.html
     /// [`CoordinatorRealignmentData`]: struct.CoordinatorRealignmentData.html
-    pub fn decode(buf: &[u8]) -> Result<(Self, usize), DecodeError> {
-        if buf.len() < 7 {
+    pub fn decode(buf: &mut dyn Buf) -> Result<Self, DecodeError> {
+        if buf.remaining() < 7 {
             return Err(DecodeError::NotEnoughBytes);
         }
-        let mut offset = 0;
-        let (pan_id, size) = PanId::decode(buf)?;
-        offset += size;
-        let (coordinator_address, size) = ShortAddress::decode(&buf[offset..])?;
-        offset += size;
-        let channel = buf[offset];
-        offset += 1;
-        let (device_address, size) = ShortAddress::decode(&buf[offset..])?;
-        offset += size;
-        let channel_page = if buf.len() > 7 {
-            offset += 1;
-            Some(buf[offset - 1])
+        let pan_id = PanId::decode(buf)?;
+        let coordinator_address = ShortAddress::decode(buf)?;
+        let channel = buf.get_u8();
+        let device_address = ShortAddress::decode(buf)?;
+        let channel_page = if buf.remaining() > 7 {
+            Some(buf.get_u8())
         } else {
             None
         };
-        Ok((
-            CoordinatorRealignmentData {
-                pan_id,
-                coordinator_address,
-                channel,
-                device_address,
-                channel_page,
-            },
-            offset,
-        ))
+        Ok(Self {
+            pan_id,
+            coordinator_address,
+            channel,
+            device_address,
+            channel_page,
+        })
     }
     /// Encode coordinator re-alignment data into a byte buffer
     pub fn encode(&self, buf: &mut dyn BufMut) {
@@ -268,60 +259,54 @@ impl Command {
     ///
     /// [`DecodeError`]: ../enum.DecodeError.html
     /// [`Command`]: enum.Command.html
-    pub fn decode(buf: &[u8]) -> Result<(Self, usize), DecodeError> {
-        if buf.len() == 0 {
+    pub fn decode(buf: &mut dyn Buf) -> Result<Self, DecodeError> {
+        if buf.remaining() == 0 {
             return Err(DecodeError::NotEnoughBytes);
         }
-        let cmd = CommandId::optional_from(buf[0]);
-        if cmd.is_none() {
-            return Err(DecodeError::InvalidValue);
-        }
-        match cmd.unwrap() {
+        let cmd = CommandId::optional_from(buf.get_u8()).ok_or(DecodeError::InvalidValue)?;
+        match cmd {
             CommandId::AssociationRequest => {
-                if buf.len() < 2 {
+                if buf.remaining() < 1 {
                     return Err(DecodeError::NotEnoughBytes);
                 }
-                let capability = CapabilityInformation::from(buf[1]);
-                Ok((Command::AssociationRequest(capability), 2))
+                let capability = CapabilityInformation::from(buf.get_u8());
+                Ok(Command::AssociationRequest(capability))
             }
             CommandId::AssociationResponse => {
-                if buf.len() < 4 {
+                if buf.remaining() < 3 {
                     return Err(DecodeError::NotEnoughBytes);
                 }
-                let (address, _) = ShortAddress::decode(&buf[1..])?;
-                if let Some(status) = AssociationStatus::optional_from(buf[3]) {
-                    Ok((Command::AssociationResponse(address, status), 4))
-                } else {
-                    return Err(DecodeError::InvalidValue);
-                }
+                let address = ShortAddress::decode(buf)?;
+                let status = AssociationStatus::optional_from(buf.get_u8())
+                    .ok_or(DecodeError::InvalidValue)?;
+                Ok(Command::AssociationResponse(address, status))
             }
             CommandId::DisassociationNotification => {
-                if buf.len() < 2 {
+                if buf.remaining() < 1 {
                     return Err(DecodeError::NotEnoughBytes);
                 }
-                if let Some(reason) = DisassociationReason::optional_from(buf[1]) {
-                    Ok((Command::DisassociationNotification(reason), 2))
-                } else {
-                    return Err(DecodeError::InvalidValue);
-                }
+                let reason = DisassociationReason::optional_from(buf.get_u8())
+                    .ok_or(DecodeError::InvalidValue)?;
+                Ok(Command::DisassociationNotification(reason))
             }
-            CommandId::DataRequest => Ok((Command::DataRequest, 1)),
-            CommandId::PanIdConflictNotification => Ok((Command::PanIdConflictNotification, 1)),
-            CommandId::OrphanNotification => Ok((Command::OrphanNotification, 1)),
-            CommandId::BeaconRequest => Ok((Command::BeaconRequest, 1)),
+            CommandId::DataRequest => Ok(Command::DataRequest),
+            CommandId::PanIdConflictNotification => Ok(Command::PanIdConflictNotification),
+            CommandId::OrphanNotification => Ok(Command::OrphanNotification),
+            CommandId::BeaconRequest => Ok(Command::BeaconRequest),
             CommandId::CoordinatorRealignment => {
-                let (data, size) = CoordinatorRealignmentData::decode(&buf[1..])?;
-                Ok((Command::CoordinatorRealignment(data), size + 1))
+                let data = CoordinatorRealignmentData::decode(buf)?;
+                Ok(Command::CoordinatorRealignment(data))
             }
             CommandId::GuaranteedTimeSlotRequest => {
-                if buf.len() < 2 {
+                if buf.remaining() < 1 {
                     return Err(DecodeError::NotEnoughBytes);
                 }
-                let characteristics = GuaranteedTimeSlotCharacteristics::from(buf[1]);
-                Ok((Command::GuaranteedTimeSlotRequest(characteristics), 2))
+                let characteristics = GuaranteedTimeSlotCharacteristics::from(buf.get_u8());
+                Ok(Command::GuaranteedTimeSlotRequest(characteristics))
             }
         }
     }
+
     /// Encode the Command into a byte buffer
     pub fn encode(&self, buf: &mut dyn BufMut) {
         match *self {
@@ -368,9 +353,9 @@ mod tests {
 
     #[test]
     fn decode_association_request() {
-        let data = [0x01, 0x8e];
-        let (command, size) = Command::decode(&data).unwrap();
-        assert_eq!(size, 2);
+        let mut data = &[0x01, 0x8e][..];
+        let command = Command::decode(&mut data).unwrap();
+        assert_eq!(data.remaining(), 0);
         assert_eq!(
             command,
             Command::AssociationRequest(CapabilityInformation {
@@ -460,17 +445,17 @@ mod tests {
 
     #[test]
     fn decode_association_response() {
-        let data = [0x02, 0x40, 0x77, 0x00];
-        let (command, size) = Command::decode(&data).unwrap();
-        assert_eq!(size, 4);
+        let mut data = &[0x02, 0x40, 0x77, 0x00][..];
+        let command = Command::decode(&mut data).unwrap();
+        assert_eq!(data.remaining(), 0);
         assert_eq!(
             command,
             Command::AssociationResponse(ShortAddress(0x7740), AssociationStatus::Successful)
         );
 
-        let data = [0x02, 0xaa, 0x55, 0x01];
-        let (command, size) = Command::decode(&data).unwrap();
-        assert_eq!(size, 4);
+        let mut data = &[0x02, 0xaa, 0x55, 0x01][..];
+        let command = Command::decode(&mut data).unwrap();
+        assert_eq!(data.remaining(), 0);
         assert_eq!(
             command,
             Command::AssociationResponse(
@@ -479,17 +464,17 @@ mod tests {
             )
         );
 
-        let data = [0x02, 0x00, 0x00, 0x02];
-        let (command, size) = Command::decode(&data).unwrap();
-        assert_eq!(size, 4);
+        let mut data = &[0x02, 0x00, 0x00, 0x02][..];
+        let command = Command::decode(&mut data).unwrap();
+        assert_eq!(data.remaining(), 0);
         assert_eq!(
             command,
             Command::AssociationResponse(ShortAddress(0x0000), AssociationStatus::AccessDenied)
         );
 
-        let data = [0x02, 0x00, 0x00, 0x03];
-        let (command, size) = Command::decode(&data).unwrap();
-        assert_eq!(size, 4);
+        let mut data = &[0x02, 0x00, 0x00, 0x03][..];
+        let command = Command::decode(&mut data).unwrap();
+        assert_eq!(data.remaining(), 0);
         assert_eq!(
             command,
             Command::AssociationResponse(
@@ -498,9 +483,9 @@ mod tests {
             )
         );
 
-        let data = [0x02, 0x00, 0x00, 0x80];
-        let (command, size) = Command::decode(&data).unwrap();
-        assert_eq!(size, 4);
+        let mut data = &[0x02, 0x00, 0x00, 0x80][..];
+        let command = Command::decode(&mut data).unwrap();
+        assert_eq!(data.remaining(), 0);
         assert_eq!(
             command,
             Command::AssociationResponse(
@@ -509,16 +494,16 @@ mod tests {
             )
         );
 
-        let data = [0x02, 0x00, 0x00, 0x04];
-        let result = Command::decode(&data);
+        let mut data = &[0x02, 0x00, 0x00, 0x04][..];
+        let result = Command::decode(&mut data);
         assert!(result.is_err());
 
-        let data = [0x02, 0x00, 0x00, 0x7f];
-        let result = Command::decode(&data);
+        let mut data = &[0x02, 0x00, 0x00, 0x7f][..];
+        let result = Command::decode(&mut data);
         assert!(result.is_err());
 
-        let data = [0x02, 0x00, 0x00, 0x81];
-        let result = Command::decode(&data);
+        let mut data = &[0x02, 0x00, 0x00, 0x81][..];
+        let result = Command::decode(&mut data);
         assert!(result.is_err());
     }
 
@@ -566,28 +551,28 @@ mod tests {
 
     #[test]
     fn decode_disassociation_notification() {
-        let data = [0x03, 0x01];
-        let (command, size) = Command::decode(&data).unwrap();
-        assert_eq!(size, 2);
+        let mut data = &[0x03, 0x01][..];
+        let command = Command::decode(&mut data).unwrap();
+        assert_eq!(data.remaining(), 0);
         assert_eq!(
             command,
             Command::DisassociationNotification(DisassociationReason::CoordinatorLeave)
         );
 
-        let data = [0x03, 0x02];
-        let (command, size) = Command::decode(&data).unwrap();
-        assert_eq!(size, 2);
+        let mut data = &[0x03, 0x02][..];
+        let command = Command::decode(&mut data).unwrap();
+        assert_eq!(data.remaining(), 0);
         assert_eq!(
             command,
             Command::DisassociationNotification(DisassociationReason::DeviceLeave)
         );
 
-        let data = [0x03, 0x00];
-        let result = Command::decode(&data);
+        let mut data = &[0x03, 0x00][..];
+        let result = Command::decode(&mut data);
         assert!(result.is_err());
 
-        let data = [0x03, 0x03];
-        let result = Command::decode(&data);
+        let mut data = &[0x03, 0x03][..];
+        let result = Command::decode(&mut data);
         assert!(result.is_err());
     }
 
@@ -674,9 +659,9 @@ mod tests {
 
     #[test]
     fn decode_guaranteed_time_slot_request() {
-        let data = [0x09, 0x01];
-        let (command, size) = Command::decode(&data).unwrap();
-        assert_eq!(size, 2);
+        let mut data = &[0x09, 0x01][..];
+        let command = Command::decode(&mut data).unwrap();
+        assert_eq!(data.remaining(), 0);
         assert_eq!(
             command,
             Command::GuaranteedTimeSlotRequest(GuaranteedTimeSlotCharacteristics {
@@ -686,9 +671,9 @@ mod tests {
             })
         );
 
-        let data = [0x09, 0x12];
-        let (command, size) = Command::decode(&data).unwrap();
-        assert_eq!(size, 2);
+        let mut data = &[0x09, 0x12][..];
+        let command = Command::decode(&mut data).unwrap();
+        assert_eq!(data.remaining(), 0);
         assert_eq!(
             command,
             Command::GuaranteedTimeSlotRequest(GuaranteedTimeSlotCharacteristics {
@@ -698,9 +683,9 @@ mod tests {
             })
         );
 
-        let data = [0x09, 0x23];
-        let (command, size) = Command::decode(&data).unwrap();
-        assert_eq!(size, 2);
+        let mut data = &[0x09, 0x23][..];
+        let command = Command::decode(&mut data).unwrap();
+        assert_eq!(data.remaining(), 0);
         assert_eq!(
             command,
             Command::GuaranteedTimeSlotRequest(GuaranteedTimeSlotCharacteristics {
@@ -747,24 +732,24 @@ mod tests {
 
     #[test]
     fn decode_other_commands() {
-        let data = [0x04];
-        let (command, size) = Command::decode(&data).unwrap();
-        assert_eq!(size, 1);
+        let mut data = &[0x04][..];
+        let command = Command::decode(&mut data).unwrap();
+        assert_eq!(data.remaining(), 0);
         assert_eq!(command, Command::DataRequest);
 
-        let data = [0x05];
-        let (command, size) = Command::decode(&data).unwrap();
-        assert_eq!(size, 1);
+        let mut data = &[0x05][..];
+        let command = Command::decode(&mut data).unwrap();
+        assert_eq!(data.remaining(), 0);
         assert_eq!(command, Command::PanIdConflictNotification);
 
-        let data = [0x06];
-        let (command, size) = Command::decode(&data).unwrap();
-        assert_eq!(size, 1);
+        let mut data = &[0x06][..];
+        let command = Command::decode(&mut data).unwrap();
+        assert_eq!(data.remaining(), 0);
         assert_eq!(command, Command::OrphanNotification);
 
-        let data = [0x07];
-        let (command, size) = Command::decode(&data).unwrap();
-        assert_eq!(size, 1);
+        let mut data = &[0x07][..];
+        let command = Command::decode(&mut data).unwrap();
+        assert_eq!(data.remaining(), 0);
         assert_eq!(command, Command::BeaconRequest);
     }
 
