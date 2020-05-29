@@ -156,7 +156,7 @@ impl CoordinatorRealignmentData {
         let coordinator_address = ShortAddress::decode(buf)?;
         let channel = buf.get_u8();
         let device_address = ShortAddress::decode(buf)?;
-        let channel_page = if buf.remaining() > 7 {
+        let channel_page = if buf.has_remaining() {
             Some(buf.get_u8())
         } else {
             None
@@ -350,6 +350,7 @@ impl Command {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bytes::BytesMut;
 
     #[test]
     fn decode_association_request() {
@@ -377,70 +378,71 @@ mod tests {
             frame_protection: false,
             allocate_address: false,
         });
-        const DATA_SIZE: usize = 32;
-        let mut data = [0u8; DATA_SIZE];
-        let mut sliced_data = &mut data[..];
-        command.encode(&mut sliced_data);
-        let size = DATA_SIZE - sliced_data.len();
-        assert_eq!(data[..size], [0x01, 0x00]);
+        let mut data = BytesMut::with_capacity(32);
+        command.encode(&mut data);
+        let encoded_data = data.split().freeze();
+        assert_eq!(encoded_data.len(), 2);
+        assert_eq!(encoded_data[..], [0x01, 0x00]);
 
-        //FIXME restore after refactor
-        /*
-          let command = Command::AssociationRequest(CapabilityInformation {
-              full_function_device: true,
-              mains_power: false,
-              idle_receive: false,
-              frame_protection: false,
-              allocate_address: false,
-          });
-          let size = command.encode(&mut data);
-          assert_eq!(size, 2);
-          assert_eq!(data[..size], [0x01, 0x02]);
+        let command = Command::AssociationRequest(CapabilityInformation {
+            full_function_device: true,
+            mains_power: false,
+            idle_receive: false,
+            frame_protection: false,
+            allocate_address: false,
+        });
+        command.encode(&mut data);
+        let encoded_data = data.split().freeze();
+        assert_eq!(encoded_data.len(), 2);
+        assert_eq!(encoded_data[..], [0x01, 0x02]);
 
-          let command = Command::AssociationRequest(CapabilityInformation {
-              full_function_device: false,
-              mains_power: true,
-              idle_receive: false,
-              frame_protection: false,
-              allocate_address: false,
-          });
-          let size = command.encode(&mut data);
-          assert_eq!(size, 2);
-          assert_eq!(data[..size], [0x01, 0x04]);
+        let command = Command::AssociationRequest(CapabilityInformation {
+            full_function_device: false,
+            mains_power: true,
+            idle_receive: false,
+            frame_protection: false,
+            allocate_address: false,
+        });
+        command.encode(&mut data);
+        let encoded_data = data.split().freeze();
+        assert_eq!(encoded_data.len(), 2);
+        assert_eq!(encoded_data[..], [0x01, 0x04]);
 
-          let command = Command::AssociationRequest(CapabilityInformation {
-              full_function_device: false,
-              mains_power: false,
-              idle_receive: true,
-              frame_protection: false,
-              allocate_address: false,
-          });
-          let size = command.encode(&mut data);
-          assert_eq!(size, 2);
-          assert_eq!(data[..size], [0x01, 0x08]);
+        let command = Command::AssociationRequest(CapabilityInformation {
+            full_function_device: false,
+            mains_power: false,
+            idle_receive: true,
+            frame_protection: false,
+            allocate_address: false,
+        });
+        command.encode(&mut data);
+        let encoded_data = data.split().freeze();
+        assert_eq!(encoded_data.len(), 2);
+        assert_eq!(encoded_data[..], [0x01, 0x08]);
 
-          let command = Command::AssociationRequest(CapabilityInformation {
-              full_function_device: false,
-              mains_power: false,
-              idle_receive: false,
-              frame_protection: true,
-              allocate_address: false,
-          });
-          let size = command.encode(&mut data);
-          assert_eq!(size, 2);
-          assert_eq!(data[..size], [0x01, 0x40]);
+        let command = Command::AssociationRequest(CapabilityInformation {
+            full_function_device: false,
+            mains_power: false,
+            idle_receive: false,
+            frame_protection: true,
+            allocate_address: false,
+        });
+        command.encode(&mut data);
+        let encoded_data = data.split().freeze();
+        assert_eq!(encoded_data.len(), 2);
+        assert_eq!(encoded_data[..], [0x01, 0x40]);
 
-          let command = Command::AssociationRequest(CapabilityInformation {
-              full_function_device: false,
-              mains_power: false,
-              idle_receive: false,
-              frame_protection: false,
-              allocate_address: true,
-          });
-          let size = command.encode(&mut data);
-          assert_eq!(size, 2);
-          assert_eq!(data[..size], [0x01, 0x80]);
-        */
+        let command = Command::AssociationRequest(CapabilityInformation {
+            full_function_device: false,
+            mains_power: false,
+            idle_receive: false,
+            frame_protection: false,
+            allocate_address: true,
+        });
+        command.encode(&mut data);
+        let encoded_data = data.split().freeze();
+        assert_eq!(encoded_data.len(), 2);
+        assert_eq!(encoded_data[..], [0x01, 0x80]);
     }
 
     #[test]
@@ -509,44 +511,47 @@ mod tests {
 
     #[test]
     fn encode_association_response() {
-        let mut data = [0u8; 32];
-        /*
-                let command =
-                    Command::AssociationResponse(ShortAddress(0x55aa), AssociationStatus::Successful);
-                let size = command.encode(&mut data);
-                assert_eq!(size, 4);
-                assert_eq!(data[..size], [0x02, 0xaa, 0x55, 0x00]);
+        let mut data = BytesMut::with_capacity(2); // Don't panic when not enough init data
+        let command =
+            Command::AssociationResponse(ShortAddress(0x55aa), AssociationStatus::Successful);
+        command.encode(&mut data);
+        let encoded_data = data.split().freeze();
+        assert_eq!(encoded_data.len(), 4);
+        assert_eq!(encoded_data[..], [0x02, 0xaa, 0x55, 0x00]);
 
-                let command = Command::AssociationResponse(
-                    ShortAddress(0x1234),
-                    AssociationStatus::NetworkAtCapacity,
-                );
-                let size = command.encode(&mut data);
-                assert_eq!(size, 4);
-                assert_eq!(data[..size], [0x02, 0x34, 0x12, 0x01]);
+        let command = Command::AssociationResponse(
+            ShortAddress(0x1234),
+            AssociationStatus::NetworkAtCapacity,
+        );
+        command.encode(&mut data);
+        let encoded_data = data.split().freeze();
+        assert_eq!(encoded_data.len(), 4);
+        assert_eq!(encoded_data[..], [0x02, 0x34, 0x12, 0x01]);
 
-                let command =
-                    Command::AssociationResponse(ShortAddress(0xcffe), AssociationStatus::AccessDenied);
-                let size = command.encode(&mut data);
-                assert_eq!(size, 4);
-                assert_eq!(data[..size], [0x02, 0xfe, 0xcf, 0x02]);
+        let command =
+            Command::AssociationResponse(ShortAddress(0xcffe), AssociationStatus::AccessDenied);
+        command.encode(&mut data);
+        let encoded_data = data.split().freeze();
+        assert_eq!(encoded_data.len(), 4);
+        assert_eq!(encoded_data[..], [0x02, 0xfe, 0xcf, 0x02]);
 
-                let command = Command::AssociationResponse(
-                    ShortAddress(0xfedc),
-                    AssociationStatus::HoppingSequenceOffsetDuplication,
-                );
-                let size = command.encode(&mut data);
-                assert_eq!(size, 4);
-                assert_eq!(data[..size], [0x02, 0xdc, 0xfe, 0x03]);
+        let command = Command::AssociationResponse(
+            ShortAddress(0xfedc),
+            AssociationStatus::HoppingSequenceOffsetDuplication,
+        );
+        command.encode(&mut data);
+        let encoded_data = data.split().freeze();
+        assert_eq!(encoded_data.len(), 4);
+        assert_eq!(encoded_data[..], [0x02, 0xdc, 0xfe, 0x03]);
 
-                let command = Command::AssociationResponse(
-                    ShortAddress(0x0ff0),
-                    AssociationStatus::FastAssociationSuccesful,
-                );
-                let size = command.encode(&mut data);
-                assert_eq!(size, 4);
-                assert_eq!(data[..size], [0x02, 0xf0, 0x0f, 0x80]);
-        **/
+        let command = Command::AssociationResponse(
+            ShortAddress(0x0ff0),
+            AssociationStatus::FastAssociationSuccesful,
+        );
+        command.encode(&mut data);
+        let encoded_data = data.split().freeze();
+        assert_eq!(encoded_data.len(), 4);
+        assert_eq!(encoded_data[..], [0x02, 0xf0, 0x0f, 0x80]);
     }
 
     #[test]
@@ -576,86 +581,88 @@ mod tests {
         assert!(result.is_err());
     }
 
-    /*
-        #[test]
-        fn encode_disassociation_notification() {
-            let mut data = [0u8; 32];
+    #[test]
+    fn encode_disassociation_notification() {
+        let mut data = BytesMut::with_capacity(32);
 
-            let command = Command::DisassociationNotification(DisassociationReason::CoordinatorLeave);
-            let size = command.encode(&mut data);
-            assert_eq!(size, 2);
-            assert_eq!(data[..size], [0x03, 0x01]);
+        let command = Command::DisassociationNotification(DisassociationReason::CoordinatorLeave);
+        command.encode(&mut data);
+        let encoded_data = data.split().freeze();
+        assert_eq!(encoded_data.len(), 2);
+        assert_eq!(encoded_data[..], [0x03, 0x01]);
 
-            let command = Command::DisassociationNotification(DisassociationReason::DeviceLeave);
-            let size = command.encode(&mut data);
-            assert_eq!(size, 2);
-            assert_eq!(data[..size], [0x03, 0x02]);
-        }
+        let command = Command::DisassociationNotification(DisassociationReason::DeviceLeave);
+        command.encode(&mut data);
+        let encoded_data = data.split().freeze();
+        assert_eq!(encoded_data.len(), 2);
+        assert_eq!(encoded_data[..], [0x03, 0x02]);
+    }
 
-        #[test]
-        fn decode_coordinator_realignment() {
-            let data = [0x08, 0x23, 0x11, 0x01, 0x00, 0x0f, 0x34, 0x12];
-            let (command, size) = Command::decode(&data).unwrap();
-            assert_eq!(size, 8);
-            assert_eq!(
-                command,
-                Command::CoordinatorRealignment(CoordinatorRealignmentData {
-                    pan_id: PanId(0x1123),
-                    coordinator_address: ShortAddress(0x0001),
-                    channel: 15,
-                    device_address: ShortAddress(0x1234),
-                    channel_page: None,
-                })
-            );
-
-            let data = [0x08, 0x34, 0x12, 0x21, 0x43, 0x0b, 0xcd, 0xab, 0x01];
-            let (command, size) = Command::decode(&data).unwrap();
-            assert_eq!(size, 9);
-            assert_eq!(
-                command,
-                Command::CoordinatorRealignment(CoordinatorRealignmentData {
-                    pan_id: PanId(0x1234),
-                    coordinator_address: ShortAddress(0x4321),
-                    channel: 11,
-                    device_address: ShortAddress(0xabcd),
-                    channel_page: Some(1),
-                })
-            );
-        }
-
-        #[test]
-        fn encode_coordinator_realignment() {
-            let mut data = [0u8; 32];
-
-            let command = Command::CoordinatorRealignment(CoordinatorRealignmentData {
+    #[test]
+    fn decode_coordinator_realignment() {
+        let mut data = &[0x08, 0x23, 0x11, 0x01, 0x00, 0x0f, 0x34, 0x12][..];
+        let command = Command::decode(&mut data).unwrap();
+        assert_eq!(data.len(), 0);
+        assert_eq!(
+            command,
+            Command::CoordinatorRealignment(CoordinatorRealignmentData {
                 pan_id: PanId(0x1123),
                 coordinator_address: ShortAddress(0x0001),
                 channel: 15,
                 device_address: ShortAddress(0x1234),
                 channel_page: None,
-            });
-            let size = command.encode(&mut data);
-            assert_eq!(size, 8);
-            assert_eq!(
-                data[..size],
-                [0x08, 0x23, 0x11, 0x01, 0x00, 0x0f, 0x34, 0x12]
-            );
+            })
+        );
 
-            let command = Command::CoordinatorRealignment(CoordinatorRealignmentData {
-                pan_id: PanId(0xbeef),
-                coordinator_address: ShortAddress(0xfeed),
-                channel: 26,
-                device_address: ShortAddress(0x1234),
-                channel_page: Some(15),
-            });
-            let size = command.encode(&mut data);
-            assert_eq!(size, 9);
-            assert_eq!(
-                data[..size],
-                [0x08, 0xef, 0xbe, 0xed, 0xfe, 0x1a, 0x34, 0x12, 0x0f]
-            );
-        }
-    */
+        let mut data = &[0x08, 0x34, 0x12, 0x21, 0x43, 0x0b, 0xcd, 0xab, 0x01][..];
+        let command = Command::decode(&mut data).unwrap();
+        assert_eq!(data.len(), 0);
+        assert_eq!(
+            command,
+            Command::CoordinatorRealignment(CoordinatorRealignmentData {
+                pan_id: PanId(0x1234),
+                coordinator_address: ShortAddress(0x4321),
+                channel: 11,
+                device_address: ShortAddress(0xabcd),
+                channel_page: Some(1),
+            })
+        );
+    }
+
+    #[test]
+    fn encode_coordinator_realignment() {
+        let mut data = BytesMut::with_capacity(32);
+
+        let command = Command::CoordinatorRealignment(CoordinatorRealignmentData {
+            pan_id: PanId(0x1123),
+            coordinator_address: ShortAddress(0x0001),
+            channel: 15,
+            device_address: ShortAddress(0x1234),
+            channel_page: None,
+        });
+        command.encode(&mut data);
+        let encoded_data = data.split().freeze();
+        assert_eq!(encoded_data.len(), 8);
+        assert_eq!(
+            encoded_data[..],
+            [0x08, 0x23, 0x11, 0x01, 0x00, 0x0f, 0x34, 0x12]
+        );
+
+        let command = Command::CoordinatorRealignment(CoordinatorRealignmentData {
+            pan_id: PanId(0xbeef),
+            coordinator_address: ShortAddress(0xfeed),
+            channel: 26,
+            device_address: ShortAddress(0x1234),
+            channel_page: Some(15),
+        });
+        command.encode(&mut data);
+        let encoded_data = data.split().freeze();
+        assert_eq!(encoded_data.len(), 9);
+        assert_eq!(
+            encoded_data[..],
+            [0x08, 0xef, 0xbe, 0xed, 0xfe, 0x1a, 0x34, 0x12, 0x0f]
+        );
+    }
 
     #[test]
     fn decode_guaranteed_time_slot_request() {
@@ -696,39 +703,41 @@ mod tests {
         );
     }
 
-    /*
     #[test]
     fn encode_guaranteed_time_slot_request() {
-        let mut data = [0u8; 32];
+        let mut data = BytesMut::with_capacity(32);
 
         let command = Command::GuaranteedTimeSlotRequest(GuaranteedTimeSlotCharacteristics {
             count: 1,
             receive_only: false,
             allocation: false,
         });
-        let size = command.encode(&mut data);
-        assert_eq!(size, 2);
-        assert_eq!(data[..size], [0x09, 0x01]);
+        command.encode(&mut data);
+        let encoded_data = data.split().freeze();
+        assert_eq!(encoded_data.len(), 2);
+
+        assert_eq!(encoded_data[..], [0x09, 0x01]);
 
         let command = Command::GuaranteedTimeSlotRequest(GuaranteedTimeSlotCharacteristics {
             count: 15,
             receive_only: true,
             allocation: false,
         });
-        let size = command.encode(&mut data);
-        assert_eq!(size, 2);
-        assert_eq!(data[..size], [0x09, 0x1f]);
+        command.encode(&mut data);
+        let encoded_data = data.split().freeze();
+        assert_eq!(encoded_data.len(), 2);
+        assert_eq!(encoded_data[..], [0x09, 0x1f]);
 
         let command = Command::GuaranteedTimeSlotRequest(GuaranteedTimeSlotCharacteristics {
             count: 15,
             receive_only: false,
             allocation: true,
         });
-        let size = command.encode(&mut data);
-        assert_eq!(size, 2);
-        assert_eq!(data[..size], [0x09, 0x2f]);
+        command.encode(&mut data);
+        let encoded_data = data.split().freeze();
+        assert_eq!(encoded_data.len(), 2);
+        assert_eq!(encoded_data[..], [0x09, 0x2f]);
     }
-    */
 
     #[test]
     fn decode_other_commands() {
@@ -753,31 +762,32 @@ mod tests {
         assert_eq!(command, Command::BeaconRequest);
     }
 
-    /*
-        #[test]
-        fn encode_other_commands() {
-            let mut data = [0u8; 32];
+    #[test]
+    fn encode_other_commands() {
+        let mut data = BytesMut::with_capacity(32);
 
-            let command = Command::DataRequest;
-            let size = command.encode(&mut data);
-            assert_eq!(size, 1);
-            assert_eq!(data[..size], [0x04]);
+        let command = Command::DataRequest;
+        command.encode(&mut data);
+        let encoded_data = data.split().freeze();
+        assert_eq!(encoded_data.len(), 1);
+        assert_eq!(encoded_data[..], [0x04]);
 
-            let command = Command::PanIdConflictNotification;
-            let size = command.encode(&mut data);
-            assert_eq!(size, 1);
-            assert_eq!(data[..size], [0x05]);
+        let command = Command::PanIdConflictNotification;
+        command.encode(&mut data);
+        let encoded_data = data.split().freeze();
+        assert_eq!(encoded_data.len(), 1);
+        assert_eq!(encoded_data[..], [0x05]);
 
-            let command = Command::OrphanNotification;
-            let size = command.encode(&mut data);
-            assert_eq!(size, 1);
-            assert_eq!(data[..size], [0x06]);
+        let command = Command::OrphanNotification;
+        command.encode(&mut data);
+        let encoded_data = data.split().freeze();
+        assert_eq!(encoded_data.len(), 1);
+        assert_eq!(encoded_data[..], [0x06]);
 
-            let command = Command::BeaconRequest;
-            let size = command.encode(&mut data);
-            assert_eq!(size, 1);
-            assert_eq!(data[..size], [0x07]);
-        }
-
-    */
+        let command = Command::BeaconRequest;
+        command.encode(&mut data);
+        let encoded_data = data.split().freeze();
+        assert_eq!(encoded_data.len(), 1);
+        assert_eq!(encoded_data[..], [0x07]);
+    }
 }

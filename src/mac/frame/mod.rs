@@ -753,6 +753,7 @@ mod tests {
     use crate::mac::beacon;
     use crate::mac::command;
     use crate::mac::FrameVersion;
+    use bytes::BytesMut;
 
     #[test]
     fn decode_ver0_pan_id_compression() {
@@ -852,17 +853,20 @@ mod tests {
         );
     }
 
-    /*
     #[test]
     fn encode_ver1_extended() {
         let frame = Frame {
             header: Header {
-                frame_type: FrameType::Beacon,
-                security: Security::None,
-                frame_pending: true,
-                ack_request: false,
-                pan_id_compress: false,
-                version: FrameVersion::Ieee802154_2006,
+                frame_control: FrameControl {
+                    frame_type: FrameType::Beacon,
+                    security: false,
+                    frame_pending: true,
+                    ack_request: false,
+                    pan_id_compress: false,
+                    dest_addr_mode: AddressMode::Extended,
+                    version: FrameVersion::Ieee802154_2006,
+                    src_addr_mode: AddressMode::Short,
+                },
                 destination: Address::Extended(PanId(0x1234), ExtendedAddress(0x1122334455667788)),
                 source: Address::Short(PanId(0x4321), ShortAddress(0x9abc)),
                 seq: 0xff,
@@ -882,11 +886,12 @@ mod tests {
             payload: &[0xde, 0xf0],
             footer: [0x00, 0x00],
         };
-        let mut buf = [0u8; 32];
-        let size = frame.encode(&mut buf, WriteFooter::No);
-        assert_eq!(size, 23);
+        let mut buf = BytesMut::with_capacity(32);
+        frame.encode(&mut buf, WriteFooter::No);
+        let encoded_buf = buf.freeze();
+        assert_eq!(encoded_buf.len(), 23);
         assert_eq!(
-            buf[..size],
+            &encoded_buf[..],
             [
                 0x10, 0x9c, 0xff, 0x34, 0x12, 0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, 0x21,
                 0x43, 0xbc, 0x9a, 0xff, 0x0f, 0x00, 0x00, 0xde, 0xf0
@@ -898,12 +903,16 @@ mod tests {
     fn encode_ver0_pan_compress() {
         let frame = Frame {
             header: Header {
-                frame_type: FrameType::Acknowledgement,
-                security: Security::None,
-                frame_pending: false,
-                ack_request: false,
-                pan_id_compress: true,
-                version: FrameVersion::Ieee802154_2003,
+                frame_control: FrameControl {
+                    frame_type: FrameType::Acknowledgement,
+                    security: false,
+                    frame_pending: false,
+                    ack_request: false,
+                    pan_id_compress: true,
+                    dest_addr_mode: AddressMode::Extended,
+                    version: FrameVersion::Ieee802154_2003,
+                    src_addr_mode: AddressMode::Short,
+                },
                 destination: Address::Extended(PanId(0x1234), ExtendedAddress(0x1122334455667788)),
                 source: Address::Short(PanId(0x1234), ShortAddress(0x9abc)),
                 seq: 0xff,
@@ -912,11 +921,12 @@ mod tests {
             payload: &[],
             footer: [0x00, 0x00],
         };
-        let mut buf = [0u8; 32];
-        let size = frame.encode(&mut buf, WriteFooter::No);
-        assert_eq!(size, 15);
+        let mut buf = BytesMut::with_capacity(32);
+        frame.encode(&mut buf, WriteFooter::No);
+        let encoded_buf = buf.freeze();
+        assert_eq!(encoded_buf.len(), 15);
         assert_eq!(
-            buf[..size],
+            &encoded_buf[..],
             [
                 0x42, 0x8c, 0xff, 0x34, 0x12, 0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, 0xbc,
                 0x9a
@@ -928,12 +938,16 @@ mod tests {
     fn encode_ver2_none() {
         let frame = Frame {
             header: Header {
-                frame_type: FrameType::MacCommand,
-                security: Security::None,
-                frame_pending: false,
-                ack_request: true,
-                pan_id_compress: false,
-                version: FrameVersion::Ieee802154,
+                frame_control: FrameControl {
+                    frame_type: FrameType::MacCommand,
+                    security: false,
+                    frame_pending: false,
+                    ack_request: true,
+                    pan_id_compress: false,
+                    dest_addr_mode: AddressMode::None,
+                    version: FrameVersion::Ieee802154,
+                    src_addr_mode: AddressMode::Short,
+                },
                 destination: Address::None,
                 source: Address::Short(PanId(0x1234), ShortAddress(0x9abc)),
                 seq: 0xff,
@@ -942,13 +956,15 @@ mod tests {
             payload: &[],
             footer: [0x00, 0x00],
         };
-        let mut buf = [0u8; 32];
-        let size = frame.encode(&mut buf, WriteFooter::No);
+        const BUF_SIZE: usize = 32;
+        let mut buf = [0u8; BUF_SIZE];
+        let mut sliced_buf = &mut buf[..];
+        frame.encode(&mut sliced_buf, WriteFooter::No);
+        let size = BUF_SIZE - sliced_buf.remaining_mut();
         assert_eq!(size, 8);
         assert_eq!(
             buf[..size],
             [0x23, 0xa0, 0xff, 0x34, 0x12, 0xbc, 0x9a, 0x04]
         );
     }
-    */
 }
