@@ -1,4 +1,11 @@
 <a name="v0.3.0"></a>
+
+### Unreleased
+#### Changed
+- `&mut [u8]` was changed to `&mut dyn BufMut` in `encode(..)` functions. This allow end-user have control of allocation.
+- `&[u8]` was changed whenever possible to `&mut dyn Buf`
+- `Address::None` was removed in favour of `Option<Address>`
+
 ### v0.3.0 (2019-04-20)
 
 - Derive more useful traits for the various types ([#20])
