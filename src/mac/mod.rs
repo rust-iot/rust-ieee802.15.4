@@ -9,4 +9,4 @@ pub use frame::{
     WriteFooter,
 };
 
-pub use frame::frame_control::{AddressMode, FrameType, FrameVersion};
+pub use frame::frame_control::{AddressMode, FrameControl, FrameType, FrameVersion};

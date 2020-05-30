@@ -18,7 +18,7 @@ use crate::mac::beacon::Beacon;
 use crate::mac::command::Command;
 
 pub mod frame_control;
-use frame_control::{AddressMode, FrameControl, FrameType};
+pub use frame_control::{AddressMode, FrameControl, FrameType};
 
 /// An IEEE 802.15.4 MAC frame
 ///
@@ -67,7 +67,6 @@ impl<'p> Frame<'p> {
     ///     Frame,
     ///     FrameType,
     ///     PanId,
-    ///     Security,
     /// };
     ///
     /// # fn main() -> Result<(), ::ieee802154::mac::DecodeError> {
@@ -83,21 +82,22 @@ impl<'p> Frame<'p> {
     /// ];
     ///
     /// let frame = Frame::decode(&bytes, true)?;
+    /// let fcnt = frame.header.frame_control;
     ///
     /// assert_eq!(frame.header.seq,             0x00);
-    /// assert_eq!(frame.header.frame_type,      FrameType::Data);
-    /// assert_eq!(frame.header.security,        Security::None);
-    /// assert_eq!(frame.header.frame_pending,   false);
-    /// assert_eq!(frame.header.ack_request,     false);
-    /// assert_eq!(frame.header.pan_id_compress, false);
+    /// assert_eq!(fcnt.frame_type,      FrameType::Data);
+    /// assert_eq!(fcnt.security,        false);
+    /// assert_eq!(fcnt.frame_pending,   false);
+    /// assert_eq!(fcnt.ack_request,     false);
+    /// assert_eq!(fcnt.pan_id_compress, false);
     ///
     /// assert_eq!(
     ///     frame.header.destination,
-    ///     Address::Short(PanId(0x3412), ShortAddress(0x7856))
+    ///     Some(Address::Short(PanId(0x3412), ShortAddress(0x7856)))
     /// );
     /// assert_eq!(
     ///     frame.header.source,
-    ///     Address::Short(PanId(0x3412), ShortAddress(0xbc9a))
+    ///     Some(Address::Short(PanId(0x3412), ShortAddress(0xbc9a)))
     /// );
     ///
     /// assert_eq!(frame.payload, &[0xde, 0xf0]);
@@ -157,31 +157,37 @@ impl<'p> Frame<'p> {
     ///     FrameVersion,
     ///     Header,
     ///     PanId,
-    ///     Security,
     ///     WriteFooter,
+    ///     FrameControl,
+    ///     AddressMode,
     /// };
     ///
     /// let frame = Frame {
     ///     header: Header {
-    ///         seq:             0x00,
+    ///         frame_control: FrameControl {
     ///         frame_type:      FrameType::Data,
-    ///         security:        Security::None,
+    ///         security:        false,
     ///         frame_pending:   false,
     ///         ack_request:     false,
     ///         pan_id_compress: false,
     ///         version:         FrameVersion::Ieee802154_2006,
+    ///         dest_addr_mode: AddressMode::Short,
+    ///         src_addr_mode: AddressMode::Short,
+    ///         },
+    ///         seq:             0x00,
     ///
-    ///         destination: Address::Short(PanId(0x1234), ShortAddress(0x5678)),
-    ///         source:      Address::Short(PanId(0x1234), ShortAddress(0x9abc)),
+    ///         destination: Some(Address::Short(PanId(0x1234), ShortAddress(0x5678))),
+    ///         source:      Some(Address::Short(PanId(0x1234), ShortAddress(0x9abc))),
     ///     },
     ///     content: FrameContent::Data,
     ///     payload: &[0xde, 0xf0],
     ///     footer:  [0x12, 0x34]
     /// };
     ///
-    /// let mut bytes = [0u8; 32];
+    /// let mut bytes = bytes::BytesMut::with_capacity(32);
     ///
     /// frame.encode(&mut bytes, WriteFooter::No);
+    /// let encoded_bytes = bytes.split().freeze();
     ///
     /// let expected_bytes = [
     ///     0x01, 0x98,             // frame control
@@ -189,9 +195,9 @@ impl<'p> Frame<'p> {
     ///     0x34, 0x12, 0x78, 0x56, // PAN identifier and address of destination
     ///     0x34, 0x12, 0xbc, 0x9a, // PAN identifier and address of source
     ///     0xde, 0xf0,             // payload
-    ///     0x00, 0x00,             // footer, not written
+    ///    // footer, not written
     /// ];
-    /// assert_eq!(bytes[..expected_bytes.len()], expected_bytes[..]);
+    /// assert_eq!(encoded_bytes[..], expected_bytes[..]);
     /// ```
     pub fn encode(&self, buf: &mut dyn BufMut, write_footer: WriteFooter) {
         // Write header
@@ -266,36 +272,34 @@ impl Header {
     ///     FrameType,
     ///     Header,
     ///     PanId,
-    ///     Security,
     /// };
     ///
     /// # fn main() -> Result<(), ::ieee802154::mac::DecodeError> {
     /// // Construct a simple header.
-    /// let bytes = [
+    /// let mut bytes = &[
     ///     0x01, 0x98,             // frame control
     ///     0x00,                   // sequence number
     ///     0x12, 0x34, 0x56, 0x78, // PAN identifier and address of destination
     ///     0x12, 0x34, 0x9a, 0xbc, // PAN identifier and address of source
-    /// ];
+    /// ][..];
     ///
-    /// let (header, num_bytes) = Header::decode(&bytes)?;
+    /// let header = Header::decode(&mut bytes)?;
+    /// let fctl = header.frame_control;
     ///
-    /// assert_eq!(num_bytes, bytes.len());
-    ///
+    /// assert_eq!(fctl.frame_type,      FrameType::Data);
+    /// assert_eq!(fctl.security,        false);
+    /// assert_eq!(fctl.frame_pending,   false);
+    /// assert_eq!(fctl.ack_request,     false);
+    /// assert_eq!(fctl.pan_id_compress, false);
     /// assert_eq!(header.seq,             0x00);
-    /// assert_eq!(header.frame_type,      FrameType::Data);
-    /// assert_eq!(header.security,        Security::None);
-    /// assert_eq!(header.frame_pending,   false);
-    /// assert_eq!(header.ack_request,     false);
-    /// assert_eq!(header.pan_id_compress, false);
     ///
     /// assert_eq!(
     ///     header.destination,
-    ///     Address::Short(PanId(0x3412), ShortAddress(0x7856))
+    ///     Some(Address::Short(PanId(0x3412), ShortAddress(0x7856)))
     /// );
     /// assert_eq!(
     ///     header.source,
-    ///     Address::Short(PanId(0x3412), ShortAddress(0xbc9a))
+    ///     Some(Address::Short(PanId(0x3412), ShortAddress(0xbc9a)))
     /// );
     /// #
     /// # Ok(())
@@ -340,32 +344,39 @@ impl Header {
     /// # Example
     ///
     /// ``` rust
+    /// use bytes::BytesMut;
     /// use ieee802154::mac::{
     ///     Address,
+    ///     AddressMode,
     ///     ShortAddress,
     ///     FrameType,
     ///     FrameVersion,
     ///     Header,
     ///     PanId,
-    ///     Security,
+    ///     FrameControl,
     /// };
     ///
     /// let header = Header {
-    ///     seq:             0x00,
+    ///     frame_control: FrameControl {
     ///     frame_type:      FrameType::Data,
-    ///     security:        Security::None,
+    ///     security:        false,
     ///     frame_pending:   false,
     ///     ack_request:     false,
     ///     pan_id_compress: false,
     ///     version:         FrameVersion::Ieee802154_2006,
+    ///         dest_addr_mode: AddressMode::Short,
+    ///         src_addr_mode: AddressMode::Short,
+    ///     },
+    ///     seq:             0x00,
     ///
-    ///     destination: Address::Short(PanId(0x1234), ShortAddress(0x5678)),
-    ///     source:      Address::Short(PanId(0x1234), ShortAddress(0x9abc)),
+    ///     destination: Some(Address::Short(PanId(0x1234), ShortAddress(0x5678))),
+    ///     source:      Some(Address::Short(PanId(0x1234), ShortAddress(0x9abc))),
     /// };
     ///
-    /// let mut bytes = [0u8; 11];
+    /// let mut bytes = BytesMut::with_capacity(11);
     ///
     /// header.encode(&mut bytes);
+    /// let encoded_bytes = bytes.split().freeze();
     ///
     /// let expected_bytes = [
     ///     0x01, 0x98,             // frame control
@@ -373,7 +384,7 @@ impl Header {
     ///     0x34, 0x12, 0x78, 0x56, // PAN identifier and address of destination
     ///     0x34, 0x12, 0xbc, 0x9a, // PAN identifier and address of source
     /// ];
-    /// assert_eq!(bytes[..expected_bytes.len()], expected_bytes[..]);
+    /// assert_eq!(encoded_bytes, expected_bytes[..]);
     /// ```
     pub fn encode(&self, buf: &mut dyn BufMut) {
         let frame_control_raw = self.frame_control.to_bits();
@@ -437,10 +448,9 @@ impl PanId {
     /// use ieee802154::mac::PanId;
     ///
     /// # fn main() -> Result<(), ::ieee802154::mac::DecodeError> {
-    /// let bytes = [0x56, 0x78];
-    /// let (address, num_bytes) = PanId::decode(&bytes)?;
+    /// let mut bytes = &[0x56, 0x78][..];
+    /// let address = PanId::decode(&mut bytes)?;
     ///
-    /// assert_eq!(num_bytes, bytes.len());
     /// assert_eq!(address.0, 0x7856);
     /// #
     /// # Ok(())
@@ -460,14 +470,15 @@ impl PanId {
     ///
     /// ``` rust
     /// use ieee802154::mac::PanId;
+    /// use bytes::BytesMut;
     ///
     /// let address = PanId(0x1234);
     ///
-    /// let mut bytes = [0u8; 2];
+    /// let mut bytes = BytesMut::with_capacity(2);
     /// address.encode(&mut bytes);
     ///
     /// let expected_bytes = [0x34, 0x12];
-    /// assert_eq!(bytes[..expected_bytes.len()], expected_bytes[..]);
+    /// assert_eq!(bytes[..], expected_bytes[..]);
     /// ```
     pub fn encode(&self, buf: &mut dyn BufMut) {
         buf.put_u16_le(self.0)
@@ -515,10 +526,9 @@ impl ShortAddress {
     /// use ieee802154::mac::ShortAddress;
     ///
     /// # fn main() -> Result<(), ::ieee802154::mac::DecodeError> {
-    /// let bytes = [0x56, 0x78];
-    /// let (address, num_bytes) = ShortAddress::decode(&bytes)?;
+    /// let mut bytes = &[0x56, 0x78][..];
+    /// let address = ShortAddress::decode(&mut bytes)?;
     ///
-    /// assert_eq!(num_bytes, bytes.len());
     /// assert_eq!(address, ShortAddress(0x7856));
     /// #
     /// # Ok(())
@@ -541,11 +551,11 @@ impl ShortAddress {
     ///
     /// let address = ShortAddress(0x5678);
     ///
-    /// let mut bytes = [0u8; 2];
+    /// let mut bytes = bytes::BytesMut::with_capacity(2);
     /// address.encode(&mut bytes);
     ///
     /// let expected_bytes = [0x78, 0x56];
-    /// assert_eq!(bytes[..expected_bytes.len()], expected_bytes[..]);
+    /// assert_eq!(bytes[..], expected_bytes[..]);
     /// ```
     pub fn encode(&self, buf: &mut dyn BufMut) {
         buf.put_u16_le(self.0)
