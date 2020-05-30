@@ -286,7 +286,6 @@ impl GuaranteedTimeSlotInformation {
             length: 0,
             direction: Direction::Receive,
         }; 7];
-        let mut offset = 1;
         if slot_count > 0 {
             if buf.remaining() < 2 + (3 * slot_count) {
                 return Err(DecodeError::NotEnoughBytes);

@@ -165,41 +165,41 @@ pub struct FrameControl {
 }
 
 mod offset {
-    pub const frame_type: u16 = 0;
-    pub const security: u16 = 3;
-    pub const pending: u16 = 4;
-    pub const ack: u16 = 5;
-    pub const pan_id_compress: u16 = 6;
-    pub const dest_addr_mode: u16 = 10;
-    pub const version: u16 = 12;
-    pub const src_addr_mode: u16 = 14u16;
+    pub const FRAME_TYPE: u16 = 0;
+    pub const SECURITY: u16 = 3;
+    pub const PENDING: u16 = 4;
+    pub const ACK: u16 = 5;
+    pub const PAN_ID_COMPRESS: u16 = 6;
+    pub const DEST_ADDR_MODE: u16 = 10;
+    pub const VERSION: u16 = 12;
+    pub const SRC_ADDR_MODE: u16 = 14u16;
 }
 
 mod mask {
-    pub const frame_type: u16 = 0x0007;
-    pub const security: u16 = 0x0008;
-    pub const pending: u16 = 0x0010;
-    pub const ack: u16 = 0x0020;
-    pub const pan_id_compress: u16 = 0x0040;
-    pub const dest_addr_mode: u16 = 0x0C00;
-    pub const version: u16 = 0x3000;
-    pub const src_addr_mode: u16 = 0xC000;
+    pub const FRAME_TYPE: u16 = 0x0007;
+    pub const SECURITY: u16 = 0x0008;
+    pub const PENDING: u16 = 0x0010;
+    pub const ACK: u16 = 0x0020;
+    pub const PAN_ID_COMPRESS: u16 = 0x0040;
+    pub const DEST_ADDR_MODE: u16 = 0x0C00;
+    pub const VERSION: u16 = 0x3000;
+    pub const SRC_ADDR_MODE: u16 = 0xC000;
 }
 
 impl FrameControl {
     /// Try converrt from bits into FrameControl
     pub fn try_from_bits(bits: u16) -> Result<Self, DecodeError> {
         /* Parse raw data */
-        let frame_type = ((bits & mask::frame_type) >> offset::frame_type) as u8;
-        let security = ((bits & mask::security) >> offset::security) as u8;
+        let frame_type = ((bits & mask::FRAME_TYPE) >> offset::FRAME_TYPE) as u8;
+        let security = ((bits & mask::SECURITY) >> offset::SECURITY) as u8;
 
-        let frame_pending = ((bits & mask::pending) >> offset::pending) as u8;
-        let ack_request = ((bits & mask::ack) >> offset::ack) as u8;
-        let pan_id_compress = ((bits & mask::pan_id_compress) >> offset::pan_id_compress) as u8;
+        let frame_pending = ((bits & mask::PENDING) >> offset::PENDING) as u8;
+        let ack_request = ((bits & mask::ACK) >> offset::ACK) as u8;
+        let pan_id_compress = ((bits & mask::PAN_ID_COMPRESS) >> offset::PAN_ID_COMPRESS) as u8;
 
-        let dest_addr_mode = ((bits & mask::dest_addr_mode) >> offset::dest_addr_mode) as u8;
-        let version = ((bits & mask::version) >> offset::version) as u8;
-        let src_addr_mode = ((bits & mask::src_addr_mode) >> offset::src_addr_mode) as u8;
+        let dest_addr_mode = ((bits & mask::DEST_ADDR_MODE) >> offset::DEST_ADDR_MODE) as u8;
+        let version = ((bits & mask::VERSION) >> offset::VERSION) as u8;
+        let src_addr_mode = ((bits & mask::SRC_ADDR_MODE) >> offset::SRC_ADDR_MODE) as u8;
 
         /* Make rust struct */
         let version =
@@ -228,14 +228,14 @@ impl FrameControl {
 
     /// Convert Frame Control into bits.
     pub fn to_bits(&self) -> u16 {
-        let frame_control = (self.frame_type as u16) << offset::frame_type
-            | (self.security as u16) << offset::security
-            | (self.frame_pending as u16) << offset::pending
-            | (self.ack_request as u16) << offset::ack
-            | (self.pan_id_compress as u16) << offset::pan_id_compress
-            | (self.dest_addr_mode as u16) << offset::dest_addr_mode
-            | (self.version as u16) << offset::version
-            | (self.src_addr_mode as u16) << offset::src_addr_mode;
+        let frame_control = (self.frame_type as u16) << offset::FRAME_TYPE
+            | (self.security as u16) << offset::SECURITY
+            | (self.frame_pending as u16) << offset::PENDING
+            | (self.ack_request as u16) << offset::ACK
+            | (self.pan_id_compress as u16) << offset::PAN_ID_COMPRESS
+            | (self.dest_addr_mode as u16) << offset::DEST_ADDR_MODE
+            | (self.version as u16) << offset::VERSION
+            | (self.src_addr_mode as u16) << offset::SRC_ADDR_MODE;
 
         frame_control
     }

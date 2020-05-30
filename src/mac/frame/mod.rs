@@ -11,9 +11,6 @@
 // - change &[u8] => bytes::Buf
 // - remove one variant enums
 
-use core::mem::size_of_val;
-
-use byteorder::{ByteOrder, LittleEndian};
 use bytes::{Buf, BufMut};
 use hash32_derive::Hash32;
 
