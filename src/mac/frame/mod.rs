@@ -240,10 +240,10 @@ pub struct Header {
     pub seq: u8,
 
     /// Destination Address
-    pub destination: Address,
+    pub destination: Option<Address>,
 
     /// Source Address
-    pub source: Address,
+    pub source: Option<Address>,
 }
 
 impl Header {
@@ -320,8 +320,8 @@ impl Header {
             Address::decode(buf, &fctl.src_addr_mode)?
         } else {
             let pan_id = destination
-                .pan_id()
-                .ok_or(DecodeError::InvalidAddressMode(fctl.dest_addr_mode.as_u8()))?;
+                .ok_or(DecodeError::InvalidAddressMode(fctl.dest_addr_mode.as_u8()))?
+                .pan_id();
             Address::decode_compress(buf, &fctl.src_addr_mode, pan_id)?
         };
 
@@ -387,13 +387,23 @@ impl Header {
         buf.put_u8(self.seq);
 
         // Write addresses
-        self.destination.encode(buf);
-        if self.frame_control.pan_id_compress {
-            assert_eq!(self.destination.pan_id(), self.source.pan_id());
-            self.source.encode_compress(buf)
-        } else {
-            self.source.encode(buf)
-        };
+        if let Some(destination) = self.destination {
+            assert!(self.frame_control.dest_addr_mode != AddressMode::None);
+            destination.encode(buf);
+        }
+
+        match (self.source, self.frame_control.pan_id_compress) {
+            (Some(source), true) => {
+                assert!(self.frame_control.src_addr_mode != AddressMode::None);
+                source.encode_compress(buf);
+            }
+            (Some(source), false) => {
+                assert!(self.frame_control.src_addr_mode != AddressMode::None);
+                source.encode(buf);
+            }
+            (None, true) => panic!("Frame cnt request commpress address without address"),
+            (None, false) => (),
+        }
     }
 }
 
@@ -585,8 +595,6 @@ impl ExtendedAddress {
 /// An address that might contain an PAN ID and address
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum Address {
-    /// No Address
-    None,
     /// Short (16-bit) address and PAN ID (16-bit)
     Short(PanId, ShortAddress),
     /// Extended (64-bit) address and PAN ID (16-bit)
@@ -595,29 +603,33 @@ pub enum Address {
 
 impl Address {
     /// Creates an instance of `Address` that represents the broadcast address
-    pub fn broadcast(mode: &AddressMode) -> Self {
+    pub fn broadcast(mode: &AddressMode) -> Option<Self> {
         match mode {
-            AddressMode::None => Address::None,
-            AddressMode::Short => Address::Short(PanId::broadcast(), ShortAddress::broadcast()),
-            AddressMode::Extended => {
-                Address::Extended(PanId::broadcast(), ExtendedAddress::broadcast())
-            }
+            AddressMode::None => None,
+            AddressMode::Short => Some(Address::Short(
+                PanId::broadcast(),
+                ShortAddress::broadcast(),
+            )),
+            AddressMode::Extended => Some(Address::Extended(
+                PanId::broadcast(),
+                ExtendedAddress::broadcast(),
+            )),
         }
     }
 
     /// Decodes an address from a byte buffer
-    pub fn decode(buf: &mut dyn Buf, mode: &AddressMode) -> Result<Self, DecodeError> {
+    pub fn decode(buf: &mut dyn Buf, mode: &AddressMode) -> Result<Option<Self>, DecodeError> {
         let opt_address = match mode {
-            AddressMode::None => Address::None,
+            AddressMode::None => None,
             AddressMode::Short => {
                 let pan_id = PanId::decode(buf)?;
                 let short = ShortAddress::decode(buf)?;
-                Address::Short(pan_id, short)
+                Some(Address::Short(pan_id, short))
             }
             AddressMode::Extended => {
                 let pan_id = PanId::decode(buf)?;
                 let extended = ExtendedAddress::decode(buf)?;
-                Address::Extended(pan_id, extended)
+                Some(Address::Extended(pan_id, extended))
             }
         };
         Ok(opt_address)
@@ -628,16 +640,16 @@ impl Address {
         buf: &mut dyn Buf,
         mode: &AddressMode,
         pan_id: PanId,
-    ) -> Result<Self, DecodeError> {
+    ) -> Result<Option<Self>, DecodeError> {
         let opt_address = match mode {
-            AddressMode::None => Address::None,
+            AddressMode::None => None,
             AddressMode::Short => {
                 let short = ShortAddress::decode(buf)?;
-                Address::Short(pan_id, short)
+                Some(Address::Short(pan_id, short))
             }
             AddressMode::Extended => {
                 let extended = ExtendedAddress::decode(buf)?;
-                Address::Extended(pan_id, extended)
+                Some(Address::Extended(pan_id, extended))
             }
         };
         Ok(opt_address)
@@ -646,7 +658,6 @@ impl Address {
     /// Encodes the address into a buffer
     pub fn encode(&self, buf: &mut dyn BufMut) {
         match *self {
-            Address::None => (),
             Address::Short(pan_id, short) => {
                 pan_id.encode(buf);
                 short.encode(buf);
@@ -661,25 +672,22 @@ impl Address {
     /// Encodes the address into a buffer
     pub fn encode_compress(&self, buf: &mut dyn BufMut) {
         match *self {
-            Address::None => (),
             Address::Short(_, a) => a.encode(buf),
             Address::Extended(_, a) => a.encode(buf),
         }
     }
 
     /// Get the PAN ID for this address
-    pub fn pan_id(&self) -> Option<PanId> {
+    pub fn pan_id(&self) -> PanId {
         match *self {
-            Address::None => None,
-            Address::Short(pan_id, _) => Some(pan_id),
-            Address::Extended(pan_id, _) => Some(pan_id),
+            Address::Short(pan_id, _) => pan_id,
+            Address::Extended(pan_id, _) => pan_id,
         }
     }
 
     /// Get the address mode for this address
     pub fn address_mode(&self) -> AddressMode {
         match *self {
-            Address::None => AddressMode::None,
             Address::Short(_, _) => AddressMode::Short,
             Address::Extended(_, _) => AddressMode::Extended,
         }
@@ -771,11 +779,11 @@ mod tests {
         assert_eq!(fctl.version, FrameVersion::Ieee802154_2003);
         assert_eq!(
             frame.header.destination,
-            Address::Short(PanId(0x208f), ShortAddress(0xffff))
+            Some(Address::Short(PanId(0x208f), ShortAddress(0xffff)))
         );
         assert_eq!(
             frame.header.source,
-            Address::Short(PanId(0x208f), ShortAddress(0x4433))
+            Some(Address::Short(PanId(0x208f), ShortAddress(0x4433)))
         );
         assert_eq!(frame.header.seq, 145);
     }
@@ -799,8 +807,7 @@ mod tests {
             0x21, 0xc8, 0x8b, 0xff, 0xff, 0x02, 0x00, 0x23, 0x00, 0x60, 0xe2, 0x16, 0x21, 0x1c,
             0x4a, 0xc2, 0xae, 0xaa, 0xbb, 0xcc,
         ];
-        let mut sliced_data = &data[..];
-        let frame = Frame::decode(&sliced_data, true).unwrap();
+        let frame = Frame::decode(&data[..], true).unwrap();
         let fctl = frame.header.frame_control;
         assert_eq!(fctl.frame_type, FrameType::Data);
         assert_eq!(fctl.security, false);
@@ -810,11 +817,14 @@ mod tests {
         assert_eq!(fctl.version, FrameVersion::Ieee802154_2003);
         assert_eq!(
             frame.header.destination,
-            Address::Short(PanId(0xffff), ShortAddress(0x0002))
+            Some(Address::Short(PanId(0xffff), ShortAddress(0x0002)))
         );
         assert_eq!(
             frame.header.source,
-            Address::Extended(PanId(0x0023), ExtendedAddress(0xaec24a1c2116e260))
+            Some(Address::Extended(
+                PanId(0x0023),
+                ExtendedAddress(0xaec24a1c2116e260)
+            ))
         );
         assert_eq!(frame.header.seq, 139);
     }
@@ -833,8 +843,8 @@ mod tests {
                     dest_addr_mode: AddressMode::Short,
                     src_addr_mode: AddressMode::Short,
                 },
-                destination: Address::Short(PanId(0x1234), ShortAddress(0x5678)),
-                source: Address::Short(PanId(0x4321), ShortAddress(0x9abc)),
+                destination: Some(Address::Short(PanId(0x1234), ShortAddress(0x5678))),
+                source: Some(Address::Short(PanId(0x4321), ShortAddress(0x9abc))),
                 seq: 0x01,
             },
             content: FrameContent::Data,
@@ -867,8 +877,11 @@ mod tests {
                     version: FrameVersion::Ieee802154_2006,
                     src_addr_mode: AddressMode::Short,
                 },
-                destination: Address::Extended(PanId(0x1234), ExtendedAddress(0x1122334455667788)),
-                source: Address::Short(PanId(0x4321), ShortAddress(0x9abc)),
+                destination: Some(Address::Extended(
+                    PanId(0x1234),
+                    ExtendedAddress(0x1122334455667788),
+                )),
+                source: Some(Address::Short(PanId(0x4321), ShortAddress(0x9abc))),
                 seq: 0xff,
             },
             content: FrameContent::Beacon(beacon::Beacon {
@@ -913,8 +926,11 @@ mod tests {
                     version: FrameVersion::Ieee802154_2003,
                     src_addr_mode: AddressMode::Short,
                 },
-                destination: Address::Extended(PanId(0x1234), ExtendedAddress(0x1122334455667788)),
-                source: Address::Short(PanId(0x1234), ShortAddress(0x9abc)),
+                destination: Some(Address::Extended(
+                    PanId(0x1234),
+                    ExtendedAddress(0x1122334455667788),
+                )),
+                source: Some(Address::Short(PanId(0x1234), ShortAddress(0x9abc))),
                 seq: 0xff,
             },
             content: FrameContent::Acknowledgement,
@@ -948,8 +964,8 @@ mod tests {
                     version: FrameVersion::Ieee802154,
                     src_addr_mode: AddressMode::Short,
                 },
-                destination: Address::None,
-                source: Address::Short(PanId(0x1234), ShortAddress(0x9abc)),
+                destination: None,
+                source: Some(Address::Short(PanId(0x1234), ShortAddress(0x9abc))),
                 seq: 0xff,
             },
             content: FrameContent::Command(command::Command::DataRequest),
