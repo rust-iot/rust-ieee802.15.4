@@ -1,4 +1,5 @@
 //! This module contains definition of Frame Control field that is defined int 5.2.1.1 section.
+use super::header::Address;
 use super::DecodeError;
 
 /// Defines the type of a MAC frame
@@ -27,7 +28,7 @@ impl FrameType {
     /// # Example
     ///
     /// ``` rust
-    /// use ieee802154::mac::FrameType;
+    /// use ieee802154::mac::header::FrameType;
     ///
     /// let frame_type = FrameType::from_bits(0b001);
     /// assert_eq!(frame_type, Some(FrameType::Data));
@@ -63,7 +64,7 @@ impl FrameVersion {
     /// # Example
     ///
     /// ``` rust
-    /// use ieee802154::mac::FrameVersion;
+    /// use ieee802154::mac::header::FrameVersion;
     ///
     /// let version = FrameVersion::from_bits(0b0);
     /// assert_eq!(version, Some(FrameVersion::Ieee802154_2003));
@@ -79,6 +80,15 @@ impl FrameVersion {
 }
 
 /// Defines the type of Address
+///
+/// # Example
+/// ```rust
+/// use ieee802154::mac::header::{Address, AddressMode, PanId, ShortAddress};
+///
+/// let example_addr = Some(Address::Short(PanId(0x3412), ShortAddress(0x7856)));
+/// let address_mode = AddressMode::from(example_addr);
+/// assert_eq!(address_mode, AddressMode::Short);
+/// ```
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum AddressMode {
     /// PAN identifier and address field are not present
@@ -87,6 +97,25 @@ pub enum AddressMode {
     Short = 0b10,
     /// Address field contains a 64 bit extended address
     Extended = 0b11,
+}
+
+impl From<Option<Address>> for AddressMode {
+    fn from(opt_addr: Option<Address>) -> Self {
+        match opt_addr {
+            Some(Address::Short(..)) => Self::Short,
+            Some(Address::Extended(..)) => Self::Extended,
+            None => Self::None,
+        }
+    }
+}
+
+impl From<Address> for AddressMode {
+    fn from(addr: Address) -> Self {
+        match addr {
+            Address::Short(_, _) => Self::Short,
+            Address::Extended(_, _) => Self::Extended,
+        }
+    }
 }
 
 impl AddressMode {
@@ -98,8 +127,8 @@ impl AddressMode {
     /// # Example
     ///
     /// ``` rust
-    /// use ieee802154::mac::AddressMode;
-    ///
+    /// use ieee802154::mac::header::AddressMode;
+    /// // decode
     /// let address_mode = AddressMode::from_bits(0b10).unwrap();
     /// assert_eq!(address_mode, AddressMode::Short);
     /// ```
@@ -121,50 +150,17 @@ impl AddressMode {
     }
 }
 
+/// Defines whether an auxiliary security header is present in the MAC header
+///
+/// Part of [`Header`]. Auxiliary security headers are currently unsupported by
+/// this implementation.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-/// Frame Control begin of MAC header
-pub struct FrameControl {
-    /// Frame Type
-    pub frame_type: FrameType,
-
-    /// Auxiliary Security header
-    pub security: bool,
-
-    /// Frame Pending
-    ///
-    /// The Frame Pending field shall be set to `true` if the device sending the frame has more data
-    /// for the recipient,as described in 5.1.6.3. This field shall be set to `false` otherwise.
-    pub frame_pending: bool,
-
-    /// Acknowledgement Request
-    ///
-    /// The AR field specifies whether an acknowledgment is required from the recipient device on receipt of a data
-    /// or MAC command frame. If this field is set to `true`, the recipient device shall send an acknowledgment frame
-    /// only if, upon reception, the frame passes the filtering described in 5.1.6.2. If this field is set to `false`, the
-    /// recipient device shall not send an acknowledgment frame.
-    pub ack_request: bool,
-
-    /// PAN ID Compress
-    ///
-    /// The PAN ID Compression field specifies whether the MAC frame is to be sent containing only one of the
-    /// PAN identifier fields when both src and destination addresses are present. If this field is set to `true` and
-    /// both  the  src  and  destination  addresses  are  present,  the  frame  shall  contain  only  the  Destination  PAN
-    /// Identifier field, and the Source PAN Identifier field shall be assumed equal to that of the destination. If this
-    /// field is set to `false`, then the PAN Identifier field shall be present if and only if the corresponding address is
-    /// present.
-    pub pan_id_compress: bool,
-
-    /// Destination address mode
-    pub dest_addr_mode: AddressMode,
-
-    /// Frame version
-    pub version: FrameVersion,
-
-    /// Source address mode
-    pub src_addr_mode: AddressMode,
+pub enum Security {
+    /// No auxiliary security header is present
+    None = 0b0,
 }
 
-mod offset {
+pub mod offset {
     pub const FRAME_TYPE: u16 = 0;
     pub const SECURITY: u16 = 3;
     pub const PENDING: u16 = 4;
@@ -175,7 +171,7 @@ mod offset {
     pub const SRC_ADDR_MODE: u16 = 14u16;
 }
 
-mod mask {
+pub mod mask {
     pub const FRAME_TYPE: u16 = 0x0007;
     pub const SECURITY: u16 = 0x0008;
     pub const PENDING: u16 = 0x0010;
@@ -184,79 +180,4 @@ mod mask {
     pub const DEST_ADDR_MODE: u16 = 0x0C00;
     pub const VERSION: u16 = 0x3000;
     pub const SRC_ADDR_MODE: u16 = 0xC000;
-}
-
-impl FrameControl {
-    /// Try converrt from bits into FrameControl
-    pub fn try_from_bits(bits: u16) -> Result<Self, DecodeError> {
-        /* Parse raw data */
-        let frame_type = ((bits & mask::FRAME_TYPE) >> offset::FRAME_TYPE) as u8;
-        let security = ((bits & mask::SECURITY) >> offset::SECURITY) as u8;
-
-        let frame_pending = ((bits & mask::PENDING) >> offset::PENDING) as u8;
-        let ack_request = ((bits & mask::ACK) >> offset::ACK) as u8;
-        let pan_id_compress = ((bits & mask::PAN_ID_COMPRESS) >> offset::PAN_ID_COMPRESS) as u8;
-
-        let dest_addr_mode = ((bits & mask::DEST_ADDR_MODE) >> offset::DEST_ADDR_MODE) as u8;
-        let version = ((bits & mask::VERSION) >> offset::VERSION) as u8;
-        let src_addr_mode = ((bits & mask::SRC_ADDR_MODE) >> offset::SRC_ADDR_MODE) as u8;
-
-        /* Make rust struct */
-        let version =
-            FrameVersion::from_bits(version).ok_or(DecodeError::InvalidFrameVersion(version))?;
-        let frame_type =
-            FrameType::from_bits(frame_type).ok_or(DecodeError::InvalidFrameType(frame_type))?;
-        let dest_addr_mode = AddressMode::from_bits(dest_addr_mode)?;
-        let src_addr_mode = AddressMode::from_bits(src_addr_mode)?;
-        // make bool values
-        let security = security > 0;
-        let frame_pending = frame_pending > 0;
-        let ack_request = ack_request > 0;
-        let pan_id_compress = pan_id_compress > 0;
-
-        Ok(Self {
-            frame_type,
-            security,
-            frame_pending,
-            ack_request,
-            pan_id_compress,
-            dest_addr_mode,
-            version,
-            src_addr_mode,
-        })
-    }
-
-    /// Convert Frame Control into bits.
-    pub fn to_bits(&self) -> u16 {
-        let frame_control = (self.frame_type as u16) << offset::FRAME_TYPE
-            | (self.security as u16) << offset::SECURITY
-            | (self.frame_pending as u16) << offset::PENDING
-            | (self.ack_request as u16) << offset::ACK
-            | (self.pan_id_compress as u16) << offset::PAN_ID_COMPRESS
-            | (self.dest_addr_mode as u16) << offset::DEST_ADDR_MODE
-            | (self.version as u16) << offset::VERSION
-            | (self.src_addr_mode as u16) << offset::SRC_ADDR_MODE;
-
-        frame_control
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use bytes::Buf;
-
-    #[test]
-    fn frame_control_from_bits() {
-        let mut fctl_bytes = &[0x00, 0x10][..];
-        let fctl = FrameControl::try_from_bits(fctl_bytes.get_u16_le()).expect("correct bytes");
-        assert_eq!(fctl.frame_type, FrameType::Beacon);
-        assert_eq!(fctl.version, FrameVersion::Ieee802154_2006);
-        assert_eq!(fctl.security, false);
-        assert_eq!(fctl.frame_pending, false);
-        assert_eq!(fctl.ack_request, false);
-        assert_eq!(fctl.pan_id_compress, false);
-        assert_eq!(fctl.src_addr_mode, AddressMode::None);
-        assert_eq!(fctl.dest_addr_mode, AddressMode::None);
-    }
 }

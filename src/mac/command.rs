@@ -2,7 +2,10 @@
 //!
 //! Work in progress
 
-use crate::mac::{DecodeError, PanId, ShortAddress};
+use crate::mac::frame::{
+    header::{PanId, ShortAddress},
+    DecodeError,
+};
 use crate::utils::OptionalFrom;
 
 use bytes::{Buf, BufMut};

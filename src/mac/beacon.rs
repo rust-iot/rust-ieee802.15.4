@@ -5,7 +5,8 @@
 use core::convert::From;
 use core::mem;
 
-use crate::mac::{DecodeError, ExtendedAddress, ShortAddress};
+use crate::mac::frame::DecodeError;
+use crate::mac::header::{ExtendedAddress, ShortAddress};
 
 use bytes::{Buf, BufMut};
 
