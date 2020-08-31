@@ -151,19 +151,18 @@ impl<'p> Frame<'p> {
     /// # Example
     ///
     /// ``` rust
-    /// use ieee802154::mac::frame::{
+    /// use ieee802154::mac::{
     ///   Frame,
     ///   FrameContent,
     ///   WriteFooter,
-    ///   header::{
-    ///     Address,
-    ///     ShortAddress,
-    ///     FrameType,
-    ///     FrameVersion,
-    ///     Header,
-    ///     PanId,
-    ///     Security,
-    /// }};
+    ///   Address,
+    ///   ShortAddress,
+    ///   FrameType,
+    ///   FrameVersion,
+    ///   Header,
+    ///   PanId,
+    ///   Security,
+    /// };
     ///
     /// let frame = Frame {
     ///     header: Header {
@@ -294,9 +293,7 @@ mod tests {
     use super::*;
     use crate::mac::beacon;
     use crate::mac::command;
-    use crate::mac::header::{
-        Address, ExtendedAddress, FrameVersion, PanId, Security, ShortAddress,
-    };
+    use crate::mac::{Address, ExtendedAddress, FrameVersion, PanId, Security, ShortAddress};
     use bytes::BytesMut;
 
     #[test]

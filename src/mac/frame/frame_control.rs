@@ -28,7 +28,7 @@ impl FrameType {
     /// # Example
     ///
     /// ``` rust
-    /// use ieee802154::mac::header::FrameType;
+    /// use ieee802154::mac::FrameType;
     ///
     /// let frame_type = FrameType::from_bits(0b001);
     /// assert_eq!(frame_type, Some(FrameType::Data));
@@ -64,7 +64,7 @@ impl FrameVersion {
     /// # Example
     ///
     /// ``` rust
-    /// use ieee802154::mac::header::FrameVersion;
+    /// use ieee802154::mac::FrameVersion;
     ///
     /// let version = FrameVersion::from_bits(0b0);
     /// assert_eq!(version, Some(FrameVersion::Ieee802154_2003));
@@ -83,7 +83,7 @@ impl FrameVersion {
 ///
 /// # Example
 /// ```rust
-/// use ieee802154::mac::header::{Address, AddressMode, PanId, ShortAddress};
+/// use ieee802154::mac::{Address, AddressMode, PanId, ShortAddress};
 ///
 /// let example_addr = Some(Address::Short(PanId(0x3412), ShortAddress(0x7856)));
 /// let address_mode = AddressMode::from(example_addr);
@@ -127,7 +127,7 @@ impl AddressMode {
     /// # Example
     ///
     /// ``` rust
-    /// use ieee802154::mac::header::AddressMode;
+    /// use ieee802154::mac::AddressMode;
     /// // decode
     /// let address_mode = AddressMode::from_bits(0b10).unwrap();
     /// assert_eq!(address_mode, AddressMode::Short);

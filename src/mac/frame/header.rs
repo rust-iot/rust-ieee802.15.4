@@ -85,7 +85,7 @@ impl Header {
     /// # Example
     ///
     /// ``` rust
-    /// use ieee802154::mac::header::{
+    /// use ieee802154::mac::{
     ///     Address,
     ///     ShortAddress,
     ///     FrameType,
@@ -201,7 +201,7 @@ impl Header {
     ///
     /// ``` rust
     /// use bytes::BytesMut;
-    /// use ieee802154::mac::header::{
+    /// use ieee802154::mac::{
     ///     Address,
     ///     AddressMode,
     ///     ShortAddress,
@@ -284,7 +284,7 @@ impl Header {
 /// # Example
 ///
 /// ``` rust
-/// use ieee802154::mac::header::PanId;
+/// use ieee802154::mac::PanId;
 ///
 /// let pan_id = PanId(0x0123);
 /// ```
@@ -307,7 +307,7 @@ impl PanId {
     /// # Example
     ///
     /// ``` rust
-    /// use ieee802154::mac::header::PanId;
+    /// use ieee802154::mac::PanId;
     ///
     /// # fn main() -> Result<(), ::ieee802154::mac::frame::DecodeError> {
     /// let mut bytes = &[0x56, 0x78][..];
@@ -331,7 +331,7 @@ impl PanId {
     /// # Example
     ///
     /// ``` rust
-    /// use ieee802154::mac::header::PanId;
+    /// use ieee802154::mac::PanId;
     /// use bytes::BytesMut;
     ///
     /// let address = PanId(0x1234);
@@ -355,7 +355,7 @@ impl PanId {
 /// # Example
 ///
 /// ``` rust
-/// use ieee802154::mac::header::ShortAddress;
+/// use ieee802154::mac::ShortAddress;
 ///
 /// let short_address = ShortAddress(0x0123);
 /// ```
@@ -409,7 +409,7 @@ impl ShortAddress {
     /// # Example
     ///
     /// ``` rust
-    /// use ieee802154::mac::header::ShortAddress;
+    /// use ieee802154::mac::ShortAddress;
     ///
     /// let address = ShortAddress(0x5678);
     ///
@@ -431,7 +431,7 @@ impl ShortAddress {
 /// # Example
 ///
 /// ``` rust
-/// use ieee802154::mac::header::ExtendedAddress;
+/// use ieee802154::mac::ExtendedAddress;
 ///
 /// let ext_address = ExtendedAddress(0x0123456789abcdef);
 /// ```
