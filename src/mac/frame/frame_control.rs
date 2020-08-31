@@ -5,6 +5,8 @@ use super::DecodeError;
 /// Defines the type of a MAC frame
 ///
 /// Part of [`Header`].
+///
+/// [`Header`]: super::header::Header
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum FrameType {
     /// Beacon
@@ -154,6 +156,8 @@ impl AddressMode {
 ///
 /// Part of [`Header`]. Auxiliary security headers are currently unsupported by
 /// this implementation.
+///
+/// [`Header`]: super::header::Header
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum Security {
     /// No auxiliary security header is present

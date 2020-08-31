@@ -69,9 +69,9 @@ pub struct Header {
 }
 
 impl Header {
-    /// Decodes a header from a byte buffer
+    /// Decodes a mac header from a byte buffer.
     ///
-    /// This method is used by [`Frame::decode`] to decode the frame header.
+    /// This method is used by [`Frame::decode`] to decode the mac header.
     /// Unless you decide to write your own code for decoding frames, there
     /// should be no reason to call this method directly.
     ///
@@ -124,6 +124,8 @@ impl Header {
     /// # Ok(())
     /// # }
     /// ```
+    ///
+    /// [`Frame::decode`]: super::Frame
     pub fn decode(buf: &mut dyn Buf) -> Result<Self, DecodeError> {
         // Make sure we have enough buffer for the Frame Control field
         if buf.remaining() < 3 {

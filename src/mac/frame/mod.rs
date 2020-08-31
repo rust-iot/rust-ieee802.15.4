@@ -150,6 +150,7 @@ impl<'p> Frame<'p> {
     ///
     /// # Example
     ///
+    /// ## allocation allowed
     /// ``` rust
     /// use ieee802154::mac::{
     ///   Frame,
@@ -182,6 +183,7 @@ impl<'p> Frame<'p> {
     ///     footer:  [0x12, 0x34]
     /// };
     ///
+    /// // Work also with `let mut bytes = Vec::new()`;
     /// let mut bytes = bytes::BytesMut::with_capacity(32);
     ///
     /// frame.encode(&mut bytes, WriteFooter::No);
@@ -197,6 +199,84 @@ impl<'p> Frame<'p> {
     /// ];
     /// assert_eq!(encoded_bytes[..], expected_bytes[..]);
     /// ```
+    /// ## When allocation is not an option
+    ///
+    /// [`BufMut`] is implemented for `&mut [u8]` but there are common problems:
+    /// - panic when try put more data than capacity
+    /// - access to written bytes require some boilerplate
+    ///
+    /// We recommend to use [`SafeBytesSlice`] as wrapper.
+    ///
+    /// ``` rust
+    /// # use ieee802154::mac::{
+    /// #   Frame,
+    /// #   FrameContent,
+    /// #   WriteFooter,
+    /// #   Address,
+    /// #   ShortAddress,
+    /// #   FrameType,
+    /// #   FrameVersion,
+    /// #   Header,
+    /// #   PanId,
+    /// #   Security,
+    /// # };
+    /// #
+    /// # let frame = Frame {
+    /// #     header: Header {
+    /// #         frame_type:      FrameType::Data,
+    /// #         security:        Security::None,
+    /// #         frame_pending:   false,
+    /// #         ack_request:     false,
+    /// #         pan_id_compress: false,
+    /// #         version:         FrameVersion::Ieee802154_2006,
+    /// #
+    /// #         seq:             0x00,
+    /// #         destination: Some(Address::Short(PanId(0x1234), ShortAddress(0x5678))),
+    /// #         source:      Some(Address::Short(PanId(0x1234), ShortAddress(0x9abc))),
+    /// #     },
+    /// #     content: FrameContent::Data,
+    /// #     payload: &[0xde, 0xf0],
+    /// #     footer:  [0x12, 0x34]
+    /// # };
+    /// # let expected_bytes = [
+    /// #     0x01, 0x98,             // frame control
+    /// #     0x00,                   // sequence number
+    /// #     0x34, 0x12, 0x78, 0x56, // PAN identifier and address of destination
+    /// #     0x34, 0x12, 0xbc, 0x9a, // PAN identifier and address of source
+    /// #     0xde, 0xf0,             // payload
+    /// #    // footer, not written
+    /// # ];
+    ///
+    /// /* Note */
+    /// /* variables `frame` and `expected_bytes` are the same as in example above */
+    ///
+    /// /* Example use raw `&mut [u8]`  */
+    /// let mut bytes = [0u8; 64];
+    /// let mut slice = &mut bytes[..];
+    /// let org_bytes_size = slice.len();
+    /// // assume frame is the same as in example above
+    /// // This function will panic if encode want to put more than bytes.len() ⚠️
+    /// frame.encode(&mut slice, WriteFooter::No);
+    /// let written_bytes = org_bytes_size - slice.len();
+    /// let encoded_bytes = &bytes[..written_bytes];
+    /// assert_eq!(expected_bytes[..], encoded_bytes[..]);
+    ///
+    /// /* Example that use SafeBytesSlice */
+    /// use static_bytes::SafeBytesSlice;
+    /// use core::mem::MaybeUninit;
+    /// // a small optimization. SafeBytesSlice works also with `let mut uninit_bytes = [0u8; 64];`
+    /// let mut uninit_bytes: [MaybeUninit<u8>; 64] = unsafe { MaybeUninit::uninit().assume_init() };
+    /// let mut safce_slice = SafeBytesSlice::from(&mut uninit_bytes[..]);
+    /// frame.encode(&mut safce_slice, WriteFooter::No);
+    /// // no panic 🦀
+    /// // no manually bytes counting 🦀
+    /// match safce_slice.try_into_bytes() {
+    ///    Ok(bytes) => assert_eq!(bytes[..], expected_bytes[..]),
+    ///    Err(_err) => todo!("handle not enough capacity"),
+    /// };
+    /// ```
+    /// [`BufMut`]: bytes::buf::BufMut
+    /// [`SafeBytesSlice`]: https://docs.rs/static-bytes/0.1/static_bytes/struct.SafeBytesSlice.html
     pub fn encode(&self, buf: &mut dyn BufMut, write_footer: WriteFooter) {
         // Write header
         self.header.encode(buf);
@@ -222,6 +302,8 @@ impl<'p> Frame<'p> {
 /// - Write the footer as written into the `footer` field
 ///
 /// For now, only not writing the footer is supported.
+///
+/// [`Frame::encode`](Frame::encode)
 pub enum WriteFooter {
     /// Don't write the footer
     No,
