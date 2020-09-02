@@ -1,11 +1,13 @@
 //! Beacon
-//! 
+//!
 //! Work in progress
 
 use core::convert::From;
 use core::mem;
 
 use crate::mac::{DecodeError, ExtendedAddress, ShortAddress};
+
+use bytes::{Buf, BufMut};
 
 /// Beacon order is used to calculate the beacon interval
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -22,7 +24,7 @@ impl From<u8> for BeaconOrder {
     /// Convert u8 to beacon order
     fn from(value: u8) -> Self {
         match value {
-            0 ..= 14 => BeaconOrder::BeaconOrder(value),
+            0..=14 => BeaconOrder::BeaconOrder(value),
             _ => BeaconOrder::OnDemand,
         }
     }
@@ -53,7 +55,7 @@ impl From<u8> for SuperframeOrder {
     /// Convert u8 to superframe order
     fn from(value: u8) -> Self {
         match value {
-            0 ..= 14 => SuperframeOrder::SuperframeOrder(value),
+            0..=14 => SuperframeOrder::SuperframeOrder(value),
             _ => SuperframeOrder::Inactive,
         }
     }
@@ -109,45 +111,34 @@ impl SuperframeSpecification {
     ///
     /// [`DecodeError`]: ../enum.DecodeError.html
     /// [`SuperframeSpecification`]: struct.SuperframeSpecification.html
-    pub fn decode(buf: &[u8]) -> Result<(Self, usize), DecodeError> {
+    pub fn decode(buf: &mut dyn Buf) -> Result<Self, DecodeError> {
         const DATA_SIZE: usize = 2;
-        if buf.len() < DATA_SIZE {
+        if buf.remaining() < DATA_SIZE {
             return Err(DecodeError::NotEnoughBytes);
         }
-        let byte = buf[0];
+        let byte = buf.get_u8();
         let beacon_order = BeaconOrder::from(byte & 0x0f);
         let superframe_order = SuperframeOrder::from((byte >> 4) & 0x0f);
-        let byte = buf[1];
+        let byte = buf.get_u8();
         let final_cap_slot = byte & 0x0f;
         let battery_life_extension = (byte & BATTERY_LIFE_EXTENSION) == BATTERY_LIFE_EXTENSION;
         let pan_coordinator = (byte & PAN_COORDINATOR) == PAN_COORDINATOR;
         let association_permit = (byte & ASSOCIATION_PERMIT) == ASSOCIATION_PERMIT;
-        Ok((
-            SuperframeSpecification {
-                beacon_order,
-                superframe_order,
-                final_cap_slot,
-                battery_life_extension,
-                pan_coordinator,
-                association_permit,
-            },
-            DATA_SIZE,
-        ))
+        Ok(Self {
+            beacon_order,
+            superframe_order,
+            final_cap_slot,
+            battery_life_extension,
+            pan_coordinator,
+            association_permit,
+        })
     }
+
     /// Encode superframe specification into a byte buffer
-    ///
-    /// # Returns
-    ///
-    /// Returns the number of bytes written to the buffer
-    ///
-    /// # Panics
-    ///
-    /// Panics if the buffer is not long enough to hold the frame.
-    ///
-    pub fn encode(&self, buf: &mut [u8]) -> usize {
+    pub fn encode(&self, buf: &mut dyn BufMut) {
         let bo = u8::from(self.beacon_order.clone());
         let so = u8::from(self.superframe_order.clone());
-        buf[0] = (bo & 0x0f) | (so << 4);
+        buf.put_u8((bo & 0x0f) | (so << 4));
         let ble = if self.battery_life_extension {
             BATTERY_LIFE_EXTENSION
         } else {
@@ -163,8 +154,7 @@ impl SuperframeSpecification {
         } else {
             0
         };
-        buf[1] = self.final_cap_slot & 0x0f | ble | pc | ap;
-        2
+        buf.put_u8(self.final_cap_slot & 0x0f | ble | pc | ap);
     }
 }
 
@@ -213,40 +203,28 @@ impl GuaranteedTimeSlotDescriptor {
     ///
     /// [`DecodeError`]: ../enum.DecodeError.html
     /// [`GuaranteedTimeSlotDescriptor`]: struct.GuaranteedTimeSlotDescriptor.html
-    pub fn decode(buf: &[u8]) -> Result<(Self, usize), DecodeError> {
+    pub fn decode(buf: &mut dyn Buf) -> Result<Self, DecodeError> {
         const DATA_SIZE: usize = 3;
-        if buf.len() < DATA_SIZE {
+        if buf.remaining() < DATA_SIZE {
             return Err(DecodeError::NotEnoughBytes);
         }
-        let (short_address, _) = ShortAddress::decode(&buf[..2])?;
-        let byte = buf[2];
+        let short_address = ShortAddress::decode(buf)?;
+        let byte = buf.get_u8();
         let starting_slot = byte & 0x0f;
         let length = byte >> 4;
-        Ok((
-            GuaranteedTimeSlotDescriptor {
-                short_address,
-                starting_slot,
-                length,
-                // This should be updated by the super
-                direction: Direction::Receive,
-            },
-            DATA_SIZE,
-        ))
+        Ok(Self {
+            short_address,
+            starting_slot,
+            length,
+            // This should be updated by the super
+            direction: Direction::Receive,
+        })
     }
+
     /// Encode guaranteed time slot descriptor into byte buffer
-    ///
-    /// # Returns
-    ///
-    /// Returns the number of bytes written to the buffer
-    ///
-    /// # Panics
-    ///
-    /// Panics if the buffer is not long enough to hold the frame.
-    ///
-    pub fn encode(&self, buf: &mut [u8]) -> usize {
-        let size = self.short_address.encode(&mut buf[..2]);
-        buf[size] = self.starting_slot | self.length << 4;
-        size + 1
+    pub fn encode(&self, buf: &mut dyn BufMut) {
+        self.short_address.encode(buf);
+        buf.put_u8(self.starting_slot | self.length << 4);
     }
 }
 
@@ -295,11 +273,11 @@ impl GuaranteedTimeSlotInformation {
     ///
     /// [`DecodeError`]: ../enum.DecodeError.html
     /// [`GuaranteedTimeSlotInformation`]: struct.GuaranteedTimeSlotInformation.html
-    pub fn decode(buf: &[u8]) -> Result<(Self, usize), DecodeError> {
-        if buf.len() < 1 {
+    pub fn decode(buf: &mut dyn Buf) -> Result<Self, DecodeError> {
+        if buf.remaining() < 1 {
             return Err(DecodeError::NotEnoughBytes);
         }
-        let byte = buf[0];
+        let byte = buf.get_u8();
         let slot_count = (byte & COUNT_MASK) as usize;
         let permit = (byte & PERMIT) == PERMIT;
         let mut slots = [GuaranteedTimeSlotDescriptor {
@@ -308,16 +286,13 @@ impl GuaranteedTimeSlotInformation {
             length: 0,
             direction: Direction::Receive,
         }; 7];
-        let mut offset = 1;
         if slot_count > 0 {
-            if buf.len() < 2 + (3 * slot_count) {
+            if buf.remaining() < 2 + (3 * slot_count) {
                 return Err(DecodeError::NotEnoughBytes);
             }
-            let mut direction_mask = buf[1];
-            offset += 1;
+            let mut direction_mask = buf.get_u8();
             for n in 0..slot_count {
-                let (mut slot, size) = GuaranteedTimeSlotDescriptor::decode(&buf[offset..])?;
-                assert_eq!(size, 3);
+                let mut slot = GuaranteedTimeSlotDescriptor::decode(buf)?;
                 let direction = if direction_mask & 0b1 == 0b1 {
                     Direction::Transmit
                 } else {
@@ -325,46 +300,46 @@ impl GuaranteedTimeSlotInformation {
                 };
                 slot.set_direction(direction);
                 direction_mask = direction_mask >> 1;
-                offset = offset + size;
                 slots[n] = slot;
             }
         }
-        Ok((GuaranteedTimeSlotInformation { permit, slot_count, slots }, offset))
+        Ok(Self {
+            permit,
+            slot_count,
+            slots,
+        })
     }
     /// Encode guaranteed time slot information into a byte buffer
-    ///
-    /// # Returns
-    ///
-    /// Returns the number of bytes written to the buffer
-    ///
-    /// # Panics
-    ///
-    /// Panics if the buffer is not long enough to hold the frame.
-    ///
-    pub fn encode(&self, buf: &mut [u8]) -> usize {
+    pub fn encode(&self, buf: &mut dyn BufMut) {
         assert!(self.slot_count <= 7);
-        let mut size = 1usize; // header byte
         let permit = if self.permit { PERMIT } else { 0 };
-        buf[0] = ((self.slot_count as u8) & COUNT_MASK) | permit;
+
+        let header = ((self.slot_count as u8) & COUNT_MASK) | permit;
+        buf.put_u8(header);
+
         if self.slot_count > 0 {
-            size += 1; // direction field
-            let mut dir = 0x01;
-            let mut direction_mask = 0u8;
-            let mut piece = &mut buf[2..];
+            let direction_mask = {
+                let mut dir = 0x01;
+                let mut direction_mask = 0u8;
+                for n in 0..self.slot_count {
+                    let slot = self.slots[n];
+                    if slot.direction_transmit() {
+                        direction_mask = direction_mask | dir;
+                    }
+                    dir = dir << 1;
+                }
+                direction_mask
+            };
+
+            buf.put_u8(direction_mask);
+
             for n in 0..self.slot_count {
                 let slot = self.slots[n];
-                let slot_size = slot.encode(piece);
-                size += slot_size;
-                piece = &mut piece[3..];
-                if slot.direction_transmit() {
-                    direction_mask = direction_mask | dir;
-                }
-                dir = dir << 1;
+                slot.encode(buf);
             }
-            buf[1] = direction_mask;
         }
-        size
     }
+
     /// Get the slots as a slice
     pub fn slots(&self) -> &[GuaranteedTimeSlotDescriptor] {
         &self.slots[..self.slot_count]
@@ -393,7 +368,6 @@ const EXTENDED_MASK: u8 = 0b0111_0000;
 /// +-------------+----------+----------------+----------+
 ///      0 - 2         3         4 - 6             7        bit
 /// ```
-///
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct PendingAddress {
     short_address_count: usize,
@@ -425,73 +399,55 @@ impl PendingAddress {
     ///
     /// [`DecodeError`]: ../enum.DecodeError.html
     /// [`PendingAddress`]: struct.PendingAddress.html
-    pub fn decode(buf: &[u8]) -> Result<(Self, usize), DecodeError> {
-        if buf.len() < 1 {
+    pub fn decode(buf: &mut dyn Buf) -> Result<Self, DecodeError> {
+        if buf.remaining() < 1 {
             return Err(DecodeError::NotEnoughBytes);
         }
         let ss = mem::size_of::<ShortAddress>();
         let es = mem::size_of::<ExtendedAddress>();
-        let byte = buf[0];
+        let byte = buf.get_u8();
         let sl = (byte & SHORT_MASK) as usize;
         let el = ((byte & EXTENDED_MASK) >> 4) as usize;
-        if buf.len() < 1 + (sl * ss) + (el * es) {
+        if buf.remaining() < (sl * ss) + (el * es) {
             return Err(DecodeError::NotEnoughBytes);
         }
-        let mut offset = 1usize;
         let mut short_addresses = [ShortAddress::broadcast(); 7];
         for n in 0..sl {
-            let (addr, size) = ShortAddress::decode(&buf[offset..])?;
-            assert_eq!(size, ss);
-            offset = offset + size;
+            let addr = ShortAddress::decode(buf)?;
             short_addresses[n] = addr;
         }
         let mut extended_addresses = [ExtendedAddress::broadcast(); 7];
         for n in 0..el {
-            let (addr, size) = ExtendedAddress::decode(&buf[offset..])?;
-            assert_eq!(size, es);
-            offset = offset + size;
+            let addr = ExtendedAddress::decode(buf)?;
             extended_addresses[n] = addr;
         }
-        Ok((
-            PendingAddress {
-                short_address_count: sl,
-                short_addresses,
-                extended_address_count: el,
-                extended_addresses,
-            },
-            offset,
-        ))
+        Ok(Self {
+            short_address_count: sl,
+            short_addresses,
+            extended_address_count: el,
+            extended_addresses,
+        })
     }
     /// Encode pending address into byte buffer
-    ///
-    /// # Returns
-    ///
-    /// Returns the number of bytes written to the buffer
-    ///
-    /// # Panics
-    ///
-    /// Panics if the buffer is not long enough to hold the frame.
-    ///
-    pub fn encode(&self, buf: &mut [u8]) -> usize {
+    pub fn encode(&self, buf: &mut dyn BufMut) {
         assert!(self.short_address_count <= 7);
         assert!(self.extended_address_count <= 7);
-        let ss = mem::size_of::<ShortAddress>();
-        let es = mem::size_of::<ExtendedAddress>();
+
         let sl = self.short_address_count;
         let el = self.extended_address_count;
-        buf[0] = (((el as u8) << 4) & EXTENDED_MASK) | ((sl as u8) & SHORT_MASK);
-        let mut piece = &mut buf[1..];
+
+        let it_s_magic = (((el as u8) << 4) & EXTENDED_MASK) | ((sl as u8) & SHORT_MASK); //FIXME give variable meaningful name
+        buf.put_u8(it_s_magic);
+
         for n in 0..self.short_address_count {
             let addr = self.short_addresses[n];
-            addr.encode(piece);
-            piece = &mut piece[ss..];
+            addr.encode(buf);
         }
+
         for n in 0..self.extended_address_count {
             let addr = self.extended_addresses[n];
-            addr.encode(piece);
-            piece = &mut piece[es..];
+            addr.encode(buf);
         }
-        1 + sl * ss + sl * es
     }
     /// Get the short addresses
     pub fn short_addresses(&self) -> &[ShortAddress] {
@@ -502,7 +458,7 @@ impl PendingAddress {
         &self.extended_addresses[..self.extended_address_count]
     }
 }
- /// Beacon frame
+/// Beacon frame
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct Beacon {
     /// Superframe specification
@@ -527,42 +483,22 @@ impl Beacon {
     ///
     /// [`DecodeError`]: ../enum.DecodeError.html
     /// [`Beacon`]: struct.Beacon.html
-    pub fn decode(buf: &[u8]) -> Result<(Self, usize), DecodeError> {
-        let mut offset = 0usize;
-        let (superframe_spec, size) = SuperframeSpecification::decode(&buf[offset..])?;
-        offset = offset + size;
-        let (guaranteed_time_slot_info, size) =
-            GuaranteedTimeSlotInformation::decode(&buf[offset..])?;
-        offset = offset + size;
-        let (pending_address, size) = PendingAddress::decode(&buf[offset..])?;
-        offset = offset + size;
-        Ok((
-            Beacon {
-                superframe_spec,
-                guaranteed_time_slot_info,
-                pending_address,
-            },
-            offset,
-        ))
+    pub fn decode(buf: &mut dyn Buf) -> Result<Self, DecodeError> {
+        let superframe_spec = SuperframeSpecification::decode(buf)?;
+        let guaranteed_time_slot_info = GuaranteedTimeSlotInformation::decode(buf)?;
+        let pending_address = PendingAddress::decode(buf)?;
+        Ok(Self {
+            superframe_spec,
+            guaranteed_time_slot_info,
+            pending_address,
+        })
     }
+
     /// Encode beacon frame into byte buffer
-    ///
-    /// # Returns
-    ///
-    /// Returns the number of bytes written to the buffer
-    ///
-    /// # Panics
-    ///
-    /// Panics if the buffer is not long enough to hold the frame.
-    ///
-    pub fn encode(&self, buf: &mut [u8]) -> usize {
-        let size = self.superframe_spec.encode(buf);
-        let mut offset = size;
-        let size = self.guaranteed_time_slot_info.encode(&mut buf[offset..]);
-        offset += size;
-        let size = self.pending_address.encode(&mut buf[offset..]);
-        offset += size;
-        offset
+    pub fn encode(&self, buf: &mut dyn BufMut) {
+        self.superframe_spec.encode(buf);
+        self.guaranteed_time_slot_info.encode(buf);
+        self.pending_address.encode(buf);
     }
 }
 
@@ -572,9 +508,9 @@ mod tests {
 
     #[test]
     fn decode_superframe_specification() {
-        let data = [0xff, 0x0f];
-        let (ss, size) = SuperframeSpecification::decode(&data).unwrap();
-        assert_eq!(size, 2);
+        let mut data = &[0xff, 0x0f][..];
+        let ss = SuperframeSpecification::decode(&mut data).unwrap();
+        assert_eq!(data.remaining(), 0);
 
         assert_eq!(ss.beacon_order, BeaconOrder::OnDemand);
         assert_eq!(ss.superframe_order, SuperframeOrder::Inactive);
@@ -586,27 +522,27 @@ mod tests {
 
     #[test]
     fn decode_gts_information() {
-        let data = [0x00];
-        let (gts, size) = GuaranteedTimeSlotInformation::decode(&data).unwrap();
-        assert_eq!(size, 1);
+        let mut data = &[0x00][..];
+        let gts = GuaranteedTimeSlotInformation::decode(&mut data).unwrap();
+        assert_eq!(data.remaining(), 0);
         assert_eq!(gts.permit, false);
         assert_eq!(gts.slots().len(), 0);
     }
 
     #[test]
     fn decode_pending_address() {
-        let data = [0x00];
-        let (pa, size) = PendingAddress::decode(&data).unwrap();
-        assert_eq!(size, 1);
+        let mut data = &[0x00][..];
+        let pa = PendingAddress::decode(&mut data).unwrap();
+        assert_eq!(data.remaining(), 0);
         assert_eq!(pa.short_addresses().len(), 0);
         assert_eq!(pa.extended_addresses().len(), 0);
     }
 
     #[test]
     fn decode_beacon() {
-        let data = [0xff, 0x0f, 0x00, 0x00];
-        let (beacon, size) = Beacon::decode(&data).unwrap();
-        assert_eq!(size, 4);
+        let mut data = &[0xff, 0x0f, 0x00, 0x00][..];
+        let beacon = Beacon::decode(&mut data).unwrap();
+        assert_eq!(data.remaining(), 0);
 
         assert_eq!(beacon.superframe_spec.beacon_order, BeaconOrder::OnDemand);
         assert_eq!(
@@ -624,15 +560,20 @@ mod tests {
         assert_eq!(beacon.pending_address.short_addresses().len(), 0);
         assert_eq!(beacon.pending_address.extended_addresses().len(), 0);
 
-        let data = [0x12, 0xc3, 0x82, 0x01, 0x34, 0x12, 0x11, 0x78, 0x56,
-            0x14, 0x00];
-        let (beacon, size) = Beacon::decode(&data).unwrap();
-        assert_eq!(size, 11);
+        let mut data = &[
+            0x12, 0xc3, 0x82, 0x01, 0x34, 0x12, 0x11, 0x78, 0x56, 0x14, 0x00,
+        ][..];
+        let beacon = Beacon::decode(&mut data).unwrap();
+        assert_eq!(data.remaining(), 0);
 
-        assert_eq!(beacon.superframe_spec.beacon_order,
-            BeaconOrder::BeaconOrder(2));
-        assert_eq!(beacon.superframe_spec.superframe_order,
-            SuperframeOrder::SuperframeOrder(1));
+        assert_eq!(
+            beacon.superframe_spec.beacon_order,
+            BeaconOrder::BeaconOrder(2)
+        );
+        assert_eq!(
+            beacon.superframe_spec.superframe_order,
+            SuperframeOrder::SuperframeOrder(1)
+        );
         assert_eq!(beacon.superframe_spec.final_cap_slot, 3);
         assert_eq!(beacon.superframe_spec.battery_life_extension, false);
         assert_eq!(beacon.superframe_spec.pan_coordinator, true);
@@ -653,16 +594,21 @@ mod tests {
         assert_eq!(beacon.pending_address.short_addresses().len(), 0);
         assert_eq!(beacon.pending_address.extended_addresses().len(), 0);
 
-        let data = [0x12, 0xc3, 0x82, 0x02, 0x34, 0x12, 0x11, 0x78, 0x56,
-            0x14, 0x12, 0x34, 0x12, 0x78, 0x56, 0xef, 0xcd, 0xab, 0x89, 0x67,
-            0x45, 0x23, 0x01];
-        let (beacon, size) = Beacon::decode(&data).unwrap();
-        assert_eq!(size, 23);
+        let mut data = &[
+            0x12, 0xc3, 0x82, 0x02, 0x34, 0x12, 0x11, 0x78, 0x56, 0x14, 0x12, 0x34, 0x12, 0x78,
+            0x56, 0xef, 0xcd, 0xab, 0x89, 0x67, 0x45, 0x23, 0x01,
+        ][..];
+        let beacon = Beacon::decode(&mut data).unwrap();
+        assert_eq!(data.remaining(), 0);
 
-        assert_eq!(beacon.superframe_spec.beacon_order,
-            BeaconOrder::BeaconOrder(2));
-        assert_eq!(beacon.superframe_spec.superframe_order,
-            SuperframeOrder::SuperframeOrder(1));
+        assert_eq!(
+            beacon.superframe_spec.beacon_order,
+            BeaconOrder::BeaconOrder(2)
+        );
+        assert_eq!(
+            beacon.superframe_spec.superframe_order,
+            SuperframeOrder::SuperframeOrder(1)
+        );
         assert_eq!(beacon.superframe_spec.final_cap_slot, 3);
         assert_eq!(beacon.superframe_spec.battery_life_extension, false);
         assert_eq!(beacon.superframe_spec.pan_coordinator, true);
@@ -681,18 +627,23 @@ mod tests {
         assert_eq!(slots[1].direction, Direction::Transmit);
 
         assert_eq!(beacon.pending_address.short_addresses().len(), 2);
-        assert_eq!(beacon.pending_address.short_addresses()[0],
-            ShortAddress(0x1234));
-        assert_eq!(beacon.pending_address.short_addresses()[1],
-            ShortAddress(0x5678));
+        assert_eq!(
+            beacon.pending_address.short_addresses()[0],
+            ShortAddress(0x1234)
+        );
+        assert_eq!(
+            beacon.pending_address.short_addresses()[1],
+            ShortAddress(0x5678)
+        );
         assert_eq!(beacon.pending_address.extended_addresses().len(), 1);
-        assert_eq!(beacon.pending_address.extended_addresses()[0],
-            ExtendedAddress(0x0123456789abcdef));
+        assert_eq!(
+            beacon.pending_address.extended_addresses()[0],
+            ExtendedAddress(0x0123456789abcdef)
+        );
     }
 
     #[test]
     fn encode_beacon() {
-
         let superframe_spec = SuperframeSpecification {
             beacon_order: BeaconOrder::OnDemand,
             superframe_order: SuperframeOrder::Inactive,
@@ -734,11 +685,18 @@ mod tests {
             pending_address,
         };
 
-        let mut buffer = [0u8; 128];
-        let size = beacon.encode(&mut buffer);
+        const BUFFER_SIZE: usize = 128;
+        let mut buffer = [0u8; BUFFER_SIZE];
+        let mut sliced_buffer = &mut buffer[..];
+        beacon.encode(&mut sliced_buffer);
+        let size = BUFFER_SIZE - sliced_buffer.len();
         assert_eq!(size, 18);
-        assert_eq!(buffer[..size], [0xff, 0xc0, 0x81, 0x01, 0x34, 0x12,
-            0x11, 0x11, 0x56, 0x78, 0x60, 0xe2, 0x16, 0x21, 0x1c, 0x4a,
-            0xc2, 0xae]);
+        assert_eq!(
+            buffer[..size],
+            [
+                0xff, 0xc0, 0x81, 0x01, 0x34, 0x12, 0x11, 0x11, 0x56, 0x78, 0x60, 0xe2, 0x16, 0x21,
+                0x1c, 0x4a, 0xc2, 0xae
+            ]
+        );
     }
 }
