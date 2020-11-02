@@ -20,7 +20,11 @@ travis-ci   = { repository = "braun-robotics/ieee802154" }
 [dependencies]
 hash32        = "0.1"
 hash32-derive = "0.1"
-bytes = { version = "0.5", default-features=false }
+
+[dependencies.bytes]
+version          = "0.6.0"
+default-features = false
+
 
 [dev-dependencies]
-static-bytes = "0.1"
+static-bytes = "0.2"
