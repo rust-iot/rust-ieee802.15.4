@@ -2,11 +2,11 @@
 //!
 //! Work in progress
 
-use byte::{check_len, BytesExt, TryRead, TryWrite, BE, LE};
+use byte::{check_len, BytesExt, TryRead, TryWrite};
 use core::convert::From;
 use core::mem;
 
-use crate::mac::{DecodeError, ExtendedAddress, ShortAddress};
+use crate::mac::{ExtendedAddress, ShortAddress};
 
 /// Beacon order is used to calculate the beacon interval
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -468,7 +468,7 @@ mod tests {
 
     #[test]
     fn decode_superframe_specification() {
-        let mut data = [0xff, 0x0f];
+        let data = [0xff, 0x0f];
         let mut len = 0usize;
         let ss: SuperframeSpecification = data.read(&mut len).unwrap();
         assert_eq!(len, data.len());
@@ -483,7 +483,7 @@ mod tests {
 
     #[test]
     fn decode_gts_information() {
-        let mut data = [0x00];
+        let data = [0x00];
         let mut len = 0usize;
         let gts: GuaranteedTimeSlotInformation = data.read(&mut len).unwrap();
         assert_eq!(len, data.len());
@@ -493,7 +493,7 @@ mod tests {
 
     #[test]
     fn decode_pending_address() {
-        let mut data = [0x00];
+        let data = [0x00];
         let mut len = 0usize;
         let pa: PendingAddress = data.read(&mut len).unwrap();
         assert_eq!(len, data.len());
@@ -503,7 +503,7 @@ mod tests {
 
     #[test]
     fn decode_beacon() {
-        let mut data = [0xff, 0x0f, 0x00, 0x00];
+        let data = [0xff, 0x0f, 0x00, 0x00];
         let mut len = 0usize;
         let beacon: Beacon = data.read(&mut len).unwrap();
         assert_eq!(len, data.len());
@@ -524,7 +524,7 @@ mod tests {
         assert_eq!(beacon.pending_address.short_addresses().len(), 0);
         assert_eq!(beacon.pending_address.extended_addresses().len(), 0);
 
-        let mut data = &[
+        let data = &[
             0x12, 0xc3, 0x82, 0x01, 0x34, 0x12, 0x11, 0x78, 0x56, 0x14, 0x00,
         ][..];
         let mut len = 0usize;
@@ -559,7 +559,7 @@ mod tests {
         assert_eq!(beacon.pending_address.short_addresses().len(), 0);
         assert_eq!(beacon.pending_address.extended_addresses().len(), 0);
 
-        let mut data = &[
+        let data = &[
             0x12, 0xc3, 0x82, 0x02, 0x34, 0x12, 0x11, 0x78, 0x56, 0x14, 0x12, 0x34, 0x12, 0x78,
             0x56, 0xef, 0xcd, 0xab, 0x89, 0x67, 0x45, 0x23, 0x01,
         ][..];

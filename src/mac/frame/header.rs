@@ -4,7 +4,7 @@
 //!
 //! [`Header`]: struct.Header.html
 
-use byte::{check_len, BytesExt, TryRead, TryWrite, BE, LE};
+use byte::{check_len, BytesExt, TryRead, TryWrite, LE};
 use hash32_derive::Hash32;
 
 use super::frame_control::*;
@@ -344,14 +344,14 @@ impl TryWrite<AddressEncoding> for Address {
                 bytes.write(offset, pan_id)?;
                 bytes.write(offset, addr)?;
             }
-            (Address::Short(pan_id, addr), AddressEncoding::Compressed) => {
+            (Address::Short(_pan_id, addr), AddressEncoding::Compressed) => {
                 bytes.write(offset, addr)?;
             }
             (Address::Extended(pan_id, addr), AddressEncoding::Normal) => {
                 bytes.write(offset, pan_id)?;
                 bytes.write(offset, addr)?;
             }
-            (Address::Extended(pan_id, addr), AddressEncoding::Compressed) => {
+            (Address::Extended(_pan_id, addr), AddressEncoding::Compressed) => {
                 bytes.write(offset, addr)?;
             }
         }

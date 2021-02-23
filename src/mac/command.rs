@@ -7,7 +7,7 @@ use crate::mac::frame::{
     DecodeError,
 };
 use crate::utils::OptionalFrom;
-use byte::{check_len, BytesExt, TryRead, TryWrite, BE, LE};
+use byte::{check_len, BytesExt, TryRead, TryWrite};
 
 extended_enum!(
     /// MAC command identifiers
@@ -327,7 +327,7 @@ mod tests {
 
     #[test]
     fn decode_association_request() {
-        let mut data = [0x01, 0x8e];
+        let data = [0x01, 0x8e];
         let mut len = 0usize;
         let command: Command = data.read(&mut len).unwrap();
         assert_eq!(len, data.len());
@@ -427,7 +427,7 @@ mod tests {
 
     #[test]
     fn decode_association_response() {
-        let mut data = [0x02, 0x40, 0x77, 0x00];
+        let data = [0x02, 0x40, 0x77, 0x00];
         let mut len = 0usize;
         let command: Command = data.read(&mut len).unwrap();
         assert_eq!(len, data.len());
@@ -436,7 +436,7 @@ mod tests {
             Command::AssociationResponse(ShortAddress(0x7740), AssociationStatus::Successful)
         );
 
-        let mut data = [0x02, 0xaa, 0x55, 0x01];
+        let data = [0x02, 0xaa, 0x55, 0x01];
         let mut len = 0usize;
         let command: Command = data.read(&mut len).unwrap();
         assert_eq!(len, data.len());
@@ -448,7 +448,7 @@ mod tests {
             )
         );
 
-        let mut data = [0x02, 0x00, 0x00, 0x02];
+        let data = [0x02, 0x00, 0x00, 0x02];
         let mut len = 0usize;
         let command: Command = data.read(&mut len).unwrap();
         assert_eq!(len, data.len());
@@ -457,7 +457,7 @@ mod tests {
             Command::AssociationResponse(ShortAddress(0x0000), AssociationStatus::AccessDenied)
         );
 
-        let mut data = [0x02, 0x00, 0x00, 0x03];
+        let data = [0x02, 0x00, 0x00, 0x03];
         let mut len = 0usize;
         let command: Command = data.read(&mut len).unwrap();
         assert_eq!(len, data.len());
@@ -469,7 +469,7 @@ mod tests {
             )
         );
 
-        let mut data = [0x02, 0x00, 0x00, 0x80];
+        let data = [0x02, 0x00, 0x00, 0x80];
         let mut len = 0usize;
         let command: Command = data.read(&mut len).unwrap();
         assert_eq!(len, data.len());
@@ -481,15 +481,15 @@ mod tests {
             )
         );
 
-        let mut data = [0x02, 0x00, 0x00, 0x04];
+        let data = [0x02, 0x00, 0x00, 0x04];
         let result = data.read::<Command>(&mut len);
         assert!(result.is_err());
 
-        let mut data = [0x02, 0x00, 0x00, 0x7f];
+        let data = [0x02, 0x00, 0x00, 0x7f];
         let result = data.read::<Command>(&mut len);
         assert!(result.is_err());
 
-        let mut data = [0x02, 0x00, 0x00, 0x81];
+        let data = [0x02, 0x00, 0x00, 0x81];
         let result = data.read::<Command>(&mut len);
         assert!(result.is_err());
     }
@@ -546,7 +546,7 @@ mod tests {
 
     #[test]
     fn decode_disassociation_notification() {
-        let mut data = [0x03, 0x01];
+        let data = [0x03, 0x01];
         let mut len = 0usize;
         let command: Command = data.read(&mut len).unwrap();
         assert_eq!(len, data.len());
@@ -555,7 +555,7 @@ mod tests {
             Command::DisassociationNotification(DisassociationReason::CoordinatorLeave)
         );
 
-        let mut data = [0x03, 0x02];
+        let data = [0x03, 0x02];
         let mut len = 0usize;
         let command: Command = data.read(&mut len).unwrap();
         assert_eq!(len, data.len());
@@ -564,11 +564,11 @@ mod tests {
             Command::DisassociationNotification(DisassociationReason::DeviceLeave)
         );
 
-        let mut data = [0x03, 0x00];
+        let data = [0x03, 0x00];
         let result = data.read::<Command>(&mut len);
         assert!(result.is_err());
 
-        let mut data = [0x03, 0x03];
+        let data = [0x03, 0x03];
         let result = data.read::<Command>(&mut len);
         assert!(result.is_err());
     }
@@ -594,7 +594,7 @@ mod tests {
 
     #[test]
     fn decode_coordinator_realignment() {
-        let mut data = [0x08, 0x23, 0x11, 0x01, 0x00, 0x0f, 0x34, 0x12];
+        let data = [0x08, 0x23, 0x11, 0x01, 0x00, 0x0f, 0x34, 0x12];
         let mut len = 0usize;
         let command: Command = data.read(&mut len).unwrap();
         assert_eq!(len, data.len());
@@ -609,7 +609,7 @@ mod tests {
             })
         );
 
-        let mut data = [0x08, 0x34, 0x12, 0x21, 0x43, 0x0b, 0xcd, 0xab, 0x01];
+        let data = [0x08, 0x34, 0x12, 0x21, 0x43, 0x0b, 0xcd, 0xab, 0x01];
         let mut len = 0usize;
         let command: Command = data.read(&mut len).unwrap();
         assert_eq!(len, data.len());
@@ -664,7 +664,7 @@ mod tests {
 
     #[test]
     fn decode_guaranteed_time_slot_request() {
-        let mut data = [0x09, 0x01];
+        let data = [0x09, 0x01];
         let mut len = 0usize;
         let command: Command = data.read(&mut len).unwrap();
         assert_eq!(len, data.len());
@@ -677,7 +677,7 @@ mod tests {
             })
         );
 
-        let mut data = [0x09, 0x12];
+        let data = [0x09, 0x12];
         let mut len = 0usize;
         let command: Command = data.read(&mut len).unwrap();
         assert_eq!(len, data.len());
@@ -690,7 +690,7 @@ mod tests {
             })
         );
 
-        let mut data = [0x09, 0x23];
+        let data = [0x09, 0x23];
         let mut len = 0usize;
         let command: Command = data.read(&mut len).unwrap();
         assert_eq!(len, data.len());
@@ -745,25 +745,25 @@ mod tests {
 
     #[test]
     fn decode_other_commands() {
-        let mut data = [0x04];
+        let data = [0x04];
         let mut len = 0usize;
         let command: Command = data.read(&mut len).unwrap();
         assert_eq!(len, data.len());
         assert_eq!(command, Command::DataRequest);
 
-        let mut data = [0x05];
+        let data = [0x05];
         let mut len = 0usize;
         let command: Command = data.read(&mut len).unwrap();
         assert_eq!(len, data.len());
         assert_eq!(command, Command::PanIdConflictNotification);
 
-        let mut data = [0x06];
+        let data = [0x06];
         let mut len = 0usize;
         let command: Command = data.read(&mut len).unwrap();
         assert_eq!(len, data.len());
         assert_eq!(command, Command::OrphanNotification);
 
-        let mut data = [0x07];
+        let data = [0x07];
         let mut len = 0usize;
         let command: Command = data.read(&mut len).unwrap();
         assert_eq!(len, data.len());

@@ -97,20 +97,20 @@ impl<'a> TryRead<'a> for Frame<'a> {
 ///       PanId,
 ///       Security
 /// }};
+/// use byte::BytesExt;
 ///
 /// # fn main() -> Result<(), ::ieee802154::mac::frame::DecodeError> {
 /// // Construct a simple MAC frame. The CRC checksum (the last 2 bytes) is
 /// // invalid, for the sake of convenience.
 /// let bytes = [
-///     0x01, 0x98,             // frame control
+///     0x01u8, 0x98,             // frame control
 ///     0x00,                   // sequence number
 ///     0x12, 0x34, 0x56, 0x78, // PAN identifier and address of destination
 ///     0x12, 0x34, 0x9a, 0xbc, // PAN identifier and address of source
 ///     0xde, 0xf0,             // payload
-///     0x12, 0x34,             // footer
 /// ];
 ///
-/// let frame = Frame::decode(&bytes, true)?;
+/// let frame: Frame = bytes.read(&mut 0).unwrap();
 /// let header = frame.header;
 ///
 /// assert_eq!(frame.header.seq,       0x00);
@@ -130,48 +130,10 @@ impl<'a> TryRead<'a> for Frame<'a> {
 /// );
 ///
 /// assert_eq!(frame.payload, &[0xde, 0xf0]);
-/// assert_eq!(frame.footer,  [0x12, 0x34]);
 /// #
 /// # Ok(())
 /// # }
 /// ```
-// pub fn decode(mut buf: &'p [u8], contains_footer: bool) -> Result<Self, DecodeError> {
-//     let orginal_buf = buf;
-
-//     let header = Header::decode(&mut buf)?;
-
-//     let content = FrameContent::decode(&mut buf, &header)?;
-
-//     let taken_bytes = orginal_buf.len() - buf.remaining();
-//     let payload_with_footer = &orginal_buf[taken_bytes..];
-
-//     if payload_with_footer.len() != buf.remaining() {
-//         panic!(
-//             "Noncontinuous Buf implementation aren't supported. Consider use `bytes::Bytes`"
-//         );
-//     }
-//     buf.advance(buf.remaining());
-
-//     let mut footer = [0; 2];
-//     let payload = if contains_footer {
-//         if payload_with_footer.len() < 2 {
-//             return Err(DecodeError::NotEnoughBytes);
-//         }
-//         let footer_pos = payload_with_footer.len() - 2;
-//         footer.copy_from_slice(&payload_with_footer[footer_pos..]);
-//         &payload_with_footer[..footer_pos]
-//     } else {
-//         payload_with_footer
-//     };
-
-//     Ok(Frame {
-//         header,
-//         content,
-//         payload,
-//         footer,
-//     })
-// }
-
 /// Encodes the frame into a buffer
 ///
 /// # Example
@@ -190,6 +152,7 @@ impl<'a> TryRead<'a> for Frame<'a> {
 ///   PanId,
 ///   Security,
 /// };
+/// use byte::BytesExt;
 ///
 /// let frame = Frame {
 ///     header: Header {
@@ -210,10 +173,10 @@ impl<'a> TryRead<'a> for Frame<'a> {
 /// };
 ///
 /// // Work also with `let mut bytes = Vec::new()`;
-/// let mut bytes = bytes::BytesMut::with_capacity(32);
+/// let mut bytes = [0u8; 32];
+/// let mut len = 0usize;
 ///
-/// frame.encode(&mut bytes, WriteFooter::No);
-/// let encoded_bytes = bytes.split().freeze();
+/// bytes.write(&mut len, frame).unwrap();
 ///
 /// let expected_bytes = [
 ///     0x01, 0x98,             // frame control
@@ -223,7 +186,7 @@ impl<'a> TryRead<'a> for Frame<'a> {
 ///     0xde, 0xf0,             // payload
 ///    // footer, not written
 /// ];
-/// assert_eq!(encoded_bytes[..], expected_bytes[..]);
+/// assert_eq!(bytes[..len], expected_bytes);
 /// ```
 /// ## When allocation is not an option
 ///
@@ -246,6 +209,7 @@ impl<'a> TryRead<'a> for Frame<'a> {
 /// #   PanId,
 /// #   Security,
 /// # };
+/// # use byte::BytesExt;
 /// #
 /// # let frame = Frame {
 /// #     header: Header {
@@ -278,48 +242,12 @@ impl<'a> TryRead<'a> for Frame<'a> {
 ///
 /// /* Example use raw `&mut [u8]`  */
 /// let mut bytes = [0u8; 64];
-/// let mut slice = &mut bytes[..];
-/// let org_bytes_size = slice.len();
+/// let mut len = 0usize;
 /// // assume frame is the same as in example above
-/// // This function will panic if encode want to put more than bytes.len() ⚠️
-/// frame.encode(&mut slice, WriteFooter::No);
-/// let written_bytes = org_bytes_size - slice.len();
-/// let encoded_bytes = &bytes[..written_bytes];
-/// assert_eq!(expected_bytes[..], encoded_bytes[..]);
-///
-/// /* Example that use SafeBytesSlice */
-/// use static_bytes::SafeBytesSlice;
-/// use core::mem::MaybeUninit;
-/// // a small optimization. SafeBytesSlice works also with `let mut uninit_bytes = [0u8; 64];`
-/// let mut uninit_bytes: [MaybeUninit<u8>; 64] = unsafe { MaybeUninit::uninit().assume_init() };
-/// let mut safce_slice = SafeBytesSlice::from(&mut uninit_bytes[..]);
-/// frame.encode(&mut safce_slice, WriteFooter::No);
-/// // no panic 🦀
-/// // no manually bytes counting 🦀
-/// match safce_slice.try_into_bytes() {
-///    Ok(bytes) => assert_eq!(bytes[..], expected_bytes[..]),
-///    Err(_err) => todo!("handle not enough capacity"),
-/// };
+/// bytes.write(&mut len, frame);
+/// assert_eq!(bytes[..len], expected_bytes);
 /// ```
-/// [`BufMut`]: bytes::buf::BufMut
-/// [`SafeBytesSlice`]: https://docs.rs/static-bytes/0.1/static_bytes/struct.SafeBytesSlice.html
-// pub fn encode(&self, buf: &mut dyn BufMut, write_footer: WriteFooter) {
-//     // Write header
-//     self.header.encode(buf);
-
-//     // Write content
-//     self.content.encode(buf);
-
-//     // Write payload
-//     buf.put_slice(self.payload);
-
-//     // Write footer
-//     match write_footer {
-//         WriteFooter::No => (),
-//     }
-// }
-// }
-
+///
 /// Tells [`Frame::encode`] whether to write the footer
 ///
 /// Eventually, this should support three options:
@@ -400,20 +328,20 @@ pub enum DecodeError {
 impl From<DecodeError> for byte::Error {
     fn from(e: DecodeError) -> Self {
         match e {
-            NotEnoughBytes => byte::Error::Incomplete,
-            InvalidFrameType => byte::Error::BadInput {
+            _NotEnoughBytes => byte::Error::Incomplete,
+            _InvalidFrameType => byte::Error::BadInput {
                 err: "InvalidFrameType",
             },
-            SecurityNotSupported => byte::Error::BadInput {
+            _SecurityNotSupported => byte::Error::BadInput {
                 err: "SecurityNotSupported",
             },
-            InvalidAddressMode => byte::Error::BadInput {
+            _InvalidAddressMode => byte::Error::BadInput {
                 err: "InvalidAddressMode",
             },
-            InvalidFrameVersion => byte::Error::BadInput {
+            _InvalidFrameVersion => byte::Error::BadInput {
                 err: "InvalidFrameVersion",
             },
-            InvalidValue => byte::Error::BadInput {
+            _InvalidValue => byte::Error::BadInput {
                 err: "InvalidValue",
             },
         }
@@ -459,7 +387,12 @@ mod tests {
         let frame = data.read::<Frame>(&mut 0);
         assert!(frame.is_err());
         if let Err(e) = frame {
-            assert_eq!(e, DecodeError::InvalidAddressMode(0).into())
+            assert_eq!(
+                e,
+                byte::Error::BadInput {
+                    err: "InvalidAddressMode"
+                }
+            )
         }
     }
 
