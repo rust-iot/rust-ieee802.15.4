@@ -139,12 +139,12 @@ pub struct CoordinatorRealignmentData {
 impl TryWrite for CoordinatorRealignmentData {
     fn try_write(self, bytes: &mut [u8], _ctx: ()) -> byte::Result<usize> {
         let offset = &mut 0;
-        bytes.write(offset, self.pan_id);
-        bytes.write(offset, self.coordinator_address);
-        bytes.write(offset, self.channel);
-        bytes.write(offset, self.device_address);
+        bytes.write(offset, self.pan_id)?;
+        bytes.write(offset, self.coordinator_address)?;
+        bytes.write(offset, self.channel)?;
+        bytes.write(offset, self.device_address)?;
         if let Some(channel_page) = self.channel_page {
-            bytes.write(offset, channel_page);
+            bytes.write(offset, channel_page)?;
         }
         Ok(*offset)
     }
@@ -354,7 +354,7 @@ mod tests {
         });
         let mut data = [0u8; 32];
         let mut len = 0usize;
-        data.write(&mut len, command);
+        data.write(&mut len, command).unwrap();
 
         assert_eq!(len, 2);
         assert_eq!(data[..len], [0x01, 0x00]);
@@ -367,7 +367,7 @@ mod tests {
             allocate_address: false,
         });
         let mut len = 0usize;
-        data.write(&mut len, command);
+        data.write(&mut len, command).unwrap();
 
         assert_eq!(len, 2);
         assert_eq!(data[..len], [0x01, 0x02]);
@@ -380,7 +380,7 @@ mod tests {
             allocate_address: false,
         });
         let mut len = 0usize;
-        data.write(&mut len, command);
+        data.write(&mut len, command).unwrap();
 
         assert_eq!(len, 2);
         assert_eq!(data[..len], [0x01, 0x04]);
@@ -393,7 +393,7 @@ mod tests {
             allocate_address: false,
         });
         let mut len = 0usize;
-        data.write(&mut len, command);
+        data.write(&mut len, command).unwrap();
 
         assert_eq!(len, 2);
         assert_eq!(data[..len], [0x01, 0x08]);
@@ -406,7 +406,7 @@ mod tests {
             allocate_address: false,
         });
         let mut len = 0usize;
-        data.write(&mut len, command);
+        data.write(&mut len, command).unwrap();
 
         assert_eq!(len, 2);
         assert_eq!(data[..len], [0x01, 0x40]);
@@ -419,7 +419,7 @@ mod tests {
             allocate_address: true,
         });
         let mut len = 0usize;
-        data.write(&mut len, command);
+        data.write(&mut len, command).unwrap();
 
         assert_eq!(len, 2);
         assert_eq!(data[..len], [0x01, 0x80]);
@@ -579,14 +579,14 @@ mod tests {
 
         let command = Command::DisassociationNotification(DisassociationReason::CoordinatorLeave);
         let mut len = 0usize;
-        data.write(&mut len, command);
+        data.write(&mut len, command).unwrap();
 
         assert_eq!(len, 2);
         assert_eq!(data[..len], [0x03, 0x01]);
 
         let command = Command::DisassociationNotification(DisassociationReason::DeviceLeave);
         let mut len = 0usize;
-        data.write(&mut len, command);
+        data.write(&mut len, command).unwrap();
 
         assert_eq!(len, 2);
         assert_eq!(data[..len], [0x03, 0x02]);
@@ -637,7 +637,7 @@ mod tests {
             channel_page: None,
         });
         let mut len = 0usize;
-        data.write(&mut len, command);
+        data.write(&mut len, command).unwrap();
 
         assert_eq!(len, 8);
         assert_eq!(
@@ -653,7 +653,7 @@ mod tests {
             channel_page: Some(15),
         });
         let mut len = 0usize;
-        data.write(&mut len, command);
+        data.write(&mut len, command).unwrap();
 
         assert_eq!(len, 9);
         assert_eq!(
@@ -714,7 +714,7 @@ mod tests {
             allocation: false,
         });
         let mut len = 0usize;
-        data.write(&mut len, command);
+        data.write(&mut len, command).unwrap();
 
         assert_eq!(len, 2);
 
@@ -726,7 +726,7 @@ mod tests {
             allocation: false,
         });
         let mut len = 0usize;
-        data.write(&mut len, command);
+        data.write(&mut len, command).unwrap();
 
         assert_eq!(len, 2);
         assert_eq!(data[..len], [0x09, 0x1f]);
@@ -737,7 +737,7 @@ mod tests {
             allocation: true,
         });
         let mut len = 0usize;
-        data.write(&mut len, command);
+        data.write(&mut len, command).unwrap();
 
         assert_eq!(len, 2);
         assert_eq!(data[..len], [0x09, 0x2f]);
@@ -776,28 +776,28 @@ mod tests {
 
         let command = Command::DataRequest;
         let mut len = 0usize;
-        data.write(&mut len, command);
+        data.write(&mut len, command).unwrap();
 
         assert_eq!(len, 1);
         assert_eq!(data[..len], [0x04]);
 
         let command = Command::PanIdConflictNotification;
         let mut len = 0usize;
-        data.write(&mut len, command);
+        data.write(&mut len, command).unwrap();
 
         assert_eq!(len, 1);
         assert_eq!(data[..len], [0x05]);
 
         let command = Command::OrphanNotification;
         let mut len = 0usize;
-        data.write(&mut len, command);
+        data.write(&mut len, command).unwrap();
 
         assert_eq!(len, 1);
         assert_eq!(data[..len], [0x06]);
 
         let command = Command::BeaconRequest;
         let mut len = 0usize;
-        data.write(&mut len, command);
+        data.write(&mut len, command).unwrap();
 
         assert_eq!(len, 1);
         assert_eq!(data[..len], [0x07]);

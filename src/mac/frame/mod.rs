@@ -16,7 +16,7 @@ use crate::mac::command::Command;
 
 mod frame_control;
 pub mod header;
-use byte::{check_len, BytesExt, TryRead, TryWrite, BE, LE};
+use byte::{BytesExt, TryRead, TryWrite};
 use header::FrameType;
 pub use header::Header;
 
@@ -280,9 +280,9 @@ impl TryWrite for FrameContent {
     fn try_write(self, bytes: &mut [u8], _ctx: ()) -> byte::Result<usize> {
         let offset = &mut 0;
         match self {
-            FrameContent::Beacon(beacon) => bytes.write(offset, beacon),
-            FrameContent::Data | FrameContent::Acknowledgement => Ok(()),
-            FrameContent::Command(command) => bytes.write(offset, command),
+            FrameContent::Beacon(beacon) => bytes.write(offset, beacon)?,
+            FrameContent::Data | FrameContent::Acknowledgement => (),
+            FrameContent::Command(command) => bytes.write(offset, command)?,
         };
         Ok(*offset)
     }
@@ -328,20 +328,20 @@ pub enum DecodeError {
 impl From<DecodeError> for byte::Error {
     fn from(e: DecodeError) -> Self {
         match e {
-            _NotEnoughBytes => byte::Error::Incomplete,
-            _InvalidFrameType => byte::Error::BadInput {
+            DecodeError::NotEnoughBytes => byte::Error::Incomplete,
+            DecodeError::InvalidFrameType(_) => byte::Error::BadInput {
                 err: "InvalidFrameType",
             },
-            _SecurityNotSupported => byte::Error::BadInput {
+            DecodeError::SecurityNotSupported => byte::Error::BadInput {
                 err: "SecurityNotSupported",
             },
-            _InvalidAddressMode => byte::Error::BadInput {
+            DecodeError::InvalidAddressMode(_) => byte::Error::BadInput {
                 err: "InvalidAddressMode",
             },
-            _InvalidFrameVersion => byte::Error::BadInput {
+            DecodeError::InvalidFrameVersion(_) => byte::Error::BadInput {
                 err: "InvalidFrameVersion",
             },
-            _InvalidValue => byte::Error::BadInput {
+            DecodeError::InvalidValue => byte::Error::BadInput {
                 err: "InvalidValue",
             },
         }
@@ -389,9 +389,7 @@ mod tests {
         if let Err(e) = frame {
             assert_eq!(
                 e,
-                byte::Error::BadInput {
-                    err: "InvalidAddressMode"
-                }
+                DecodeError::InvalidAddressMode(0).into()
             )
         }
     }

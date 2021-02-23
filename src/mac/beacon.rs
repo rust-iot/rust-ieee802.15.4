@@ -206,8 +206,8 @@ impl TryRead<'_> for GuaranteedTimeSlotDescriptor {
 impl TryWrite for GuaranteedTimeSlotDescriptor {
     fn try_write(self, bytes: &mut [u8], _ctx: ()) -> byte::Result<usize> {
         let offset = &mut 0;
-        bytes.write(offset, self.short_address);
-        bytes.write(offset, self.starting_slot | self.length << 4);
+        bytes.write(offset, self.short_address)?;
+        bytes.write(offset, self.starting_slot | self.length << 4)?;
         Ok(*offset)
     }
 }
@@ -258,7 +258,7 @@ impl TryWrite for GuaranteedTimeSlotInformation {
         let permit = if self.permit { PERMIT } else { 0 };
 
         let header = ((self.slot_count as u8) & COUNT_MASK) | permit;
-        bytes.write(offset, header);
+        bytes.write(offset, header)?;
 
         if self.slot_count > 0 {
             let direction_mask = {
@@ -274,10 +274,10 @@ impl TryWrite for GuaranteedTimeSlotInformation {
                 direction_mask
             };
 
-            bytes.write(offset, direction_mask);
+            bytes.write(offset, direction_mask)?;
 
             for n in 0..self.slot_count {
-                bytes.write(offset, self.slots[n]);
+                bytes.write(offset, self.slots[n])?;
             }
         }
         Ok(*offset)
@@ -381,7 +381,7 @@ impl TryRead<'_> for PendingAddress {
         let byte: u8 = bytes.read(offset)?;
         let sl = (byte & SHORT_MASK) as usize;
         let el = ((byte & EXTENDED_MASK) >> 4) as usize;
-        check_len(&bytes[*offset..], (sl * ss) + (el * es));
+        check_len(&bytes[*offset..], (sl * ss) + (el * es))?;
         let mut short_addresses = [ShortAddress::broadcast(); 7];
         for n in 0..sl {
             short_addresses[n] = bytes.read(offset)?;
@@ -412,16 +412,16 @@ impl TryWrite for PendingAddress {
         let el = self.extended_address_count;
 
         let it_s_magic = (((el as u8) << 4) & EXTENDED_MASK) | ((sl as u8) & SHORT_MASK); //FIXME give variable meaningful name
-        bytes.write(offset, it_s_magic);
+        bytes.write(offset, it_s_magic)?;
 
         for n in 0..self.short_address_count {
             let addr = self.short_addresses[n];
-            bytes.write(offset, addr);
+            bytes.write(offset, addr)?;
         }
 
         for n in 0..self.extended_address_count {
             let addr = self.extended_addresses[n];
-            bytes.write(offset, addr);
+            bytes.write(offset, addr)?;
         }
         Ok(*offset)
     }
@@ -653,7 +653,7 @@ mod tests {
 
         let mut buffer = [0u8; 128];
         let mut len = 0usize;
-        buffer.write(&mut len, beacon);
+        buffer.write(&mut len, beacon).unwrap();
         assert_eq!(len, 18);
         assert_eq!(
             buffer[..len],

@@ -180,22 +180,22 @@ impl TryWrite for Header {
             | (self.version as u16) << offset::VERSION
             | (src_addr_mode as u16) << offset::SRC_ADDR_MODE;
 
-        bytes.write_with(offset, frame_control_raw, LE);
+        bytes.write_with(offset, frame_control_raw, LE)?;
 
         // Write Sequence Number
-        bytes.write(offset, self.seq);
+        bytes.write(offset, self.seq)?;
 
         // Write addresses
         if let Some(destination) = self.destination {
-            bytes.write_with(offset, destination, AddressEncoding::Normal);
+            bytes.write_with(offset, destination, AddressEncoding::Normal)?;
         }
 
         match (self.source, self.pan_id_compress) {
             (Some(source), true) => {
-                bytes.write_with(offset, source, AddressEncoding::Compressed);
+                bytes.write_with(offset, source, AddressEncoding::Compressed)?;
             }
             (Some(source), false) => {
-                bytes.write_with(offset, source, AddressEncoding::Normal);
+                bytes.write_with(offset, source, AddressEncoding::Normal)?;
             }
             (None, true) => {
                 panic!("frame control request compress source address without contain this address")

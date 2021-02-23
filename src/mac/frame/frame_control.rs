@@ -142,14 +142,6 @@ impl AddressMode {
             _ => Err(DecodeError::InvalidAddressMode(bits)),
         }
     }
-
-    pub(crate) fn as_u8(self) -> u8 {
-        match self {
-            Self::None => 0,
-            Self::Short => 0b10,
-            Self::Extended => 0b11,
-        }
-    }
 }
 
 /// Defines whether an auxiliary security header is present in the MAC header
