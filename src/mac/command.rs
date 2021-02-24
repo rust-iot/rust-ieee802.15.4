@@ -285,7 +285,8 @@ impl TryWrite for Command {
 impl TryRead<'_> for Command {
     fn try_read(bytes: &[u8], _ctx: ()) -> byte::Result<(Self, usize)> {
         let offset = &mut 0;
-        let cmd = CommandId::from(bytes.read::<u8>(offset)?);
+        let cmd =
+            CommandId::optional_from(bytes.read::<u8>(offset)?).ok_or(DecodeError::InvalidValue)?;
         Ok((
             match cmd {
                 CommandId::AssociationRequest => {

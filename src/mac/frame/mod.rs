@@ -16,7 +16,7 @@ use crate::mac::command::Command;
 
 mod frame_control;
 pub mod header;
-use byte::{BytesExt, TryRead, TryWrite};
+use byte::{ctx::Bytes, BytesExt, TryRead, TryWrite, LE};
 use header::FrameType;
 pub use header::Header;
 
@@ -49,34 +49,47 @@ pub struct Frame<'p> {
     pub footer: [u8; 2],
 }
 
-impl TryWrite for Frame<'_> {
-    fn try_write(self, bytes: &mut [u8], _ctx: ()) -> byte::Result<usize> {
+impl TryWrite<FooterMode> for Frame<'_> {
+    fn try_write(self, bytes: &mut [u8], mode: FooterMode) -> byte::Result<usize> {
         let offset = &mut 0;
         bytes.write(offset, self.header)?;
         bytes.write(offset, self.content)?;
         bytes.write(offset, self.payload)?;
+        match mode {
+            FooterMode::None => {}
+            FooterMode::Explicit => bytes.write(offset, &self.footer[..])?,
+        }
         Ok(*offset)
     }
 }
 
-impl<'a> TryRead<'a> for Frame<'a> {
-    fn try_read(bytes: &'a [u8], _ctx: ()) -> byte::Result<(Self, usize)> {
+impl<'a> TryRead<'a, FooterMode> for Frame<'a> {
+    fn try_read(bytes: &'a [u8], mode: FooterMode) -> byte::Result<(Self, usize)> {
         let offset = &mut 0;
         let header = bytes.read(offset)?;
         let content = bytes.read_with(offset, &header)?;
+        let (payload, footer) = match mode {
+            FooterMode::None => (
+                bytes.read_with(offset, Bytes::Len(bytes.len() - *offset))?,
+                0u16,
+            ),
+            FooterMode::Explicit => (
+                bytes.read_with(offset, Bytes::Len(bytes.len() - *offset - 2))?,
+                bytes.read_with(offset, LE)?,
+            ),
+        };
         Ok((
             Frame {
                 header: header,
                 content: content,
-                payload: &bytes[*offset..],
-                footer: [0; 2],
+                payload,
+                footer: footer.to_le_bytes(),
             },
             *offset,
         ))
     }
 }
 
-// impl<'p> Frame<'p> {
 /// Decodes a frame from a byte buffer
 ///
 /// # Errors
@@ -88,15 +101,15 @@ impl<'a> TryRead<'a> for Frame<'a> {
 /// # Example
 ///
 /// ``` rust
-/// use ieee802154::mac::frame::{
+/// use ieee802154::mac::{
 ///     Frame,
-///     header::{
 ///       Address,
 ///       ShortAddress,
 ///       FrameType,
+///       FooterMode,
 ///       PanId,
 ///       Security
-/// }};
+/// };
 /// use byte::BytesExt;
 ///
 /// # fn main() -> Result<(), ::ieee802154::mac::frame::DecodeError> {
@@ -108,9 +121,10 @@ impl<'a> TryRead<'a> for Frame<'a> {
 ///     0x12, 0x34, 0x56, 0x78, // PAN identifier and address of destination
 ///     0x12, 0x34, 0x9a, 0xbc, // PAN identifier and address of source
 ///     0xde, 0xf0,             // payload
+///     0x12, 0x34,             // payload
 /// ];
 ///
-/// let frame: Frame = bytes.read(&mut 0).unwrap();
+/// let frame: Frame = bytes.read_with(&mut 0, FooterMode::Explicit).unwrap();
 /// let header = frame.header;
 ///
 /// assert_eq!(frame.header.seq,       0x00);
@@ -130,6 +144,8 @@ impl<'a> TryRead<'a> for Frame<'a> {
 /// );
 ///
 /// assert_eq!(frame.payload, &[0xde, 0xf0]);
+///
+/// assert_eq!(frame.footer, [0x12, 0x34]);
 /// #
 /// # Ok(())
 /// # }
@@ -143,7 +159,7 @@ impl<'a> TryRead<'a> for Frame<'a> {
 /// use ieee802154::mac::{
 ///   Frame,
 ///   FrameContent,
-///   WriteFooter,
+///   FooterMode,
 ///   Address,
 ///   ShortAddress,
 ///   FrameType,
@@ -176,7 +192,7 @@ impl<'a> TryRead<'a> for Frame<'a> {
 /// let mut bytes = [0u8; 32];
 /// let mut len = 0usize;
 ///
-/// bytes.write(&mut len, frame).unwrap();
+/// bytes.write_with(&mut len, frame, FooterMode::Explicit).unwrap();
 ///
 /// let expected_bytes = [
 ///     0x01, 0x98,             // frame control
@@ -184,83 +200,32 @@ impl<'a> TryRead<'a> for Frame<'a> {
 ///     0x34, 0x12, 0x78, 0x56, // PAN identifier and address of destination
 ///     0x34, 0x12, 0xbc, 0x9a, // PAN identifier and address of source
 ///     0xde, 0xf0,             // payload
-///    // footer, not written
+///     0x12, 0x34              // footer
 /// ];
 /// assert_eq!(bytes[..len], expected_bytes);
 /// ```
-/// ## When allocation is not an option
 ///
-/// [`BufMut`] is implemented for `&mut [u8]` but there are common problems:
-/// - panic when try put more data than capacity
-/// - access to written bytes require some boilerplate
-///
-/// We recommend to use [`SafeBytesSlice`] as wrapper.
-///
-/// ``` rust
-/// # use ieee802154::mac::{
-/// #   Frame,
-/// #   FrameContent,
-/// #   WriteFooter,
-/// #   Address,
-/// #   ShortAddress,
-/// #   FrameType,
-/// #   FrameVersion,
-/// #   Header,
-/// #   PanId,
-/// #   Security,
-/// # };
-/// # use byte::BytesExt;
-/// #
-/// # let frame = Frame {
-/// #     header: Header {
-/// #         frame_type:      FrameType::Data,
-/// #         security:        Security::None,
-/// #         frame_pending:   false,
-/// #         ack_request:     false,
-/// #         pan_id_compress: false,
-/// #         version:         FrameVersion::Ieee802154_2006,
-/// #
-/// #         seq:             0x00,
-/// #         destination: Some(Address::Short(PanId(0x1234), ShortAddress(0x5678))),
-/// #         source:      Some(Address::Short(PanId(0x1234), ShortAddress(0x9abc))),
-/// #     },
-/// #     content: FrameContent::Data,
-/// #     payload: &[0xde, 0xf0],
-/// #     footer:  [0x12, 0x34]
-/// # };
-/// # let expected_bytes = [
-/// #     0x01, 0x98,             // frame control
-/// #     0x00,                   // sequence number
-/// #     0x34, 0x12, 0x78, 0x56, // PAN identifier and address of destination
-/// #     0x34, 0x12, 0xbc, 0x9a, // PAN identifier and address of source
-/// #     0xde, 0xf0,             // payload
-/// #    // footer, not written
-/// # ];
-///
-/// /* Note */
-/// /* variables `frame` and `expected_bytes` are the same as in example above */
-///
-/// /* Example use raw `&mut [u8]`  */
-/// let mut bytes = [0u8; 64];
-/// let mut len = 0usize;
-/// // assume frame is the same as in example above
-/// bytes.write(&mut len, frame);
-/// assert_eq!(bytes[..len], expected_bytes);
-/// ```
-///
-/// Tells [`Frame::encode`] whether to write the footer
+/// Tells [`Frame::encode`] whether to read/write the footer
 ///
 /// Eventually, this should support three options:
-/// - Don't write the footer
-/// - Calculate the 2-byte CRC checksum and write that as the footer
-/// - Write the footer as written into the `footer` field
+/// 1. Don't read or write the footer
+/// 2. Calculate the 2-byte CRC checksum and write that as the footer or check against read value
+/// 3. Read into or write the footer from the `footer` field
 ///
-/// For now, only not writing the footer is supported.
+/// For now, only 1 and 3 are supported.
 ///
 /// [`Frame::encode`](Frame::encode)
-pub enum WriteFooter {
-    /// Don't write the footer
-    No,
+pub enum FooterMode {
+    /// Don't read/write the footer
+    None,
+    /// Read into or write the footer from the `footer` field
+    Explicit,
+}
+
+impl Default for FooterMode {
+    fn default() -> Self {
+        Self::None
+    }
 }
 
 /// Content of a frame
@@ -387,10 +352,7 @@ mod tests {
         let frame = data.read::<Frame>(&mut 0);
         assert!(frame.is_err());
         if let Err(e) = frame {
-            assert_eq!(
-                e,
-                DecodeError::InvalidAddressMode(0).into()
-            )
+            assert_eq!(e, DecodeError::InvalidAddressMode(0).into())
         }
     }
 
