@@ -25,74 +25,8 @@ pub use header::Header;
 /// Represents a MAC frame. Can be used to [decode] a frame from bytes, or
 /// [encode] a frame to bytes.
 ///
-/// [decode]: #method.decode
-/// [encode]: #method.encode
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub struct Frame<'p> {
-    /// Header
-    pub header: Header,
-
-    /// Content
-    pub content: FrameContent,
-
-    /// Payload
-    pub payload: &'p [u8],
-
-    /// Footer
-    ///
-    /// This is a 2-byte CRC checksum.
-    ///
-    /// When creating an instance of this struct for encoding, you don't
-    /// necessarily need to write an actual CRC checksum here. [`Frame::encode`]
-    /// can omit writing this checksum, for example if the transceiver hardware
-    /// automatically adds the checksum for you.
-    pub footer: [u8; 2],
-}
-
-impl TryWrite<FooterMode> for Frame<'_> {
-    fn try_write(self, bytes: &mut [u8], mode: FooterMode) -> byte::Result<usize> {
-        let offset = &mut 0;
-        bytes.write(offset, self.header)?;
-        bytes.write(offset, self.content)?;
-        bytes.write(offset, self.payload)?;
-        match mode {
-            FooterMode::None => {}
-            FooterMode::Explicit => bytes.write(offset, &self.footer[..])?,
-        }
-        Ok(*offset)
-    }
-}
-
-impl<'a> TryRead<'a, FooterMode> for Frame<'a> {
-    fn try_read(bytes: &'a [u8], mode: FooterMode) -> byte::Result<(Self, usize)> {
-        let offset = &mut 0;
-        let header = bytes.read(offset)?;
-        let content = bytes.read_with(offset, &header)?;
-        let (payload, footer) = match mode {
-            FooterMode::None => (
-                bytes.read_with(offset, Bytes::Len(bytes.len() - *offset))?,
-                0u16,
-            ),
-            FooterMode::Explicit => (
-                bytes.read_with(offset, Bytes::Len(bytes.len() - *offset - 2))?,
-                bytes.read_with(offset, LE)?,
-            ),
-        };
-        Ok((
-            Frame {
-                header: header,
-                content: content,
-                payload,
-                footer: footer.to_le_bytes(),
-            },
-            *offset,
-        ))
-    }
-}
-
-/// Decodes a frame from a byte buffer
 ///
-/// # Errors
+/// # Decode Errors
 ///
 /// This function returns an error, if the bytes either don't encode a valid
 /// IEEE 802.15.4 frame, or encode a frame that is not fully supported by
@@ -205,7 +139,73 @@ impl<'a> TryRead<'a, FooterMode> for Frame<'a> {
 /// assert_eq!(bytes[..len], expected_bytes);
 /// ```
 ///
-/// Tells [`Frame::encode`] whether to read/write the footer
+/// [decode]: #method.try_read
+/// [encode]: #method.try_write
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct Frame<'p> {
+    /// Header
+    pub header: Header,
+
+    /// Content
+    pub content: FrameContent,
+
+    /// Payload
+    pub payload: &'p [u8],
+
+    /// Footer
+    ///
+    /// This is a 2-byte CRC checksum.
+    ///
+    /// When creating an instance of this struct for encoding, you don't
+    /// necessarily need to write an actual CRC checksum here. [`Frame::encode`]
+    /// can omit writing this checksum, for example if the transceiver hardware
+    /// automatically adds the checksum for you.
+    pub footer: [u8; 2],
+}
+
+impl TryWrite<FooterMode> for Frame<'_> {
+    fn try_write(self, bytes: &mut [u8], mode: FooterMode) -> byte::Result<usize> {
+        let offset = &mut 0;
+        bytes.write(offset, self.header)?;
+        bytes.write(offset, self.content)?;
+        bytes.write(offset, self.payload)?;
+        match mode {
+            FooterMode::None => {}
+            FooterMode::Explicit => bytes.write(offset, &self.footer[..])?,
+        }
+        Ok(*offset)
+    }
+}
+
+impl<'a> TryRead<'a, FooterMode> for Frame<'a> {
+    fn try_read(bytes: &'a [u8], mode: FooterMode) -> byte::Result<(Self, usize)> {
+        let offset = &mut 0;
+        let header = bytes.read(offset)?;
+        let content = bytes.read_with(offset, &header)?;
+        let (payload, footer) = match mode {
+            FooterMode::None => (
+                bytes.read_with(offset, Bytes::Len(bytes.len() - *offset))?,
+                0u16,
+            ),
+            FooterMode::Explicit => (
+                bytes.read_with(offset, Bytes::Len(bytes.len() - *offset - 2))?,
+                bytes.read_with(offset, LE)?,
+            ),
+        };
+        Ok((
+            Frame {
+                header: header,
+                content: content,
+                payload,
+                footer: footer.to_le_bytes(),
+            },
+            *offset,
+        ))
+    }
+}
+
+///
+/// Controls whether the footer is read/written with the frame
 ///
 /// Eventually, this should support three options:
 /// 1. Don't read or write the footer
@@ -214,7 +214,7 @@ impl<'a> TryRead<'a, FooterMode> for Frame<'a> {
 ///
 /// For now, only 1 and 3 are supported.
 ///
-/// [`Frame::encode`](Frame::encode)
+/// [`Frame::try_write`](Frame::try_write)
 pub enum FooterMode {
     /// Don't read/write the footer
     None,
