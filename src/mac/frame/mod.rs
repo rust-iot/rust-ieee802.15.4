@@ -11,13 +11,12 @@
 // - change &[u8] => bytes::Buf
 // - remove one variant enums
 
-use bytes::{Buf, BufMut};
-
 use crate::mac::beacon::Beacon;
 use crate::mac::command::Command;
 
 mod frame_control;
 pub mod header;
+use byte::{ctx::Bytes, BytesExt, TryRead, TryWrite, LE};
 use header::FrameType;
 pub use header::Header;
 
@@ -26,8 +25,122 @@ pub use header::Header;
 /// Represents a MAC frame. Can be used to [decode] a frame from bytes, or
 /// [encode] a frame to bytes.
 ///
-/// [decode]: #method.decode
-/// [encode]: #method.encode
+///
+/// # Decode Errors
+///
+/// This function returns an error, if the bytes either don't encode a valid
+/// IEEE 802.15.4 frame, or encode a frame that is not fully supported by
+/// this implementation. Please refer to [`DecodeError`] for details.
+///
+/// # Example
+///
+/// ``` rust
+/// use ieee802154::mac::{
+///     Frame,
+///       Address,
+///       ShortAddress,
+///       FrameType,
+///       FooterMode,
+///       PanId,
+///       Security
+/// };
+/// use byte::BytesExt;
+///
+/// # fn main() -> Result<(), ::ieee802154::mac::frame::DecodeError> {
+/// // Construct a simple MAC frame. The CRC checksum (the last 2 bytes) is
+/// // invalid, for the sake of convenience.
+/// let bytes = [
+///     0x01u8, 0x98,             // frame control
+///     0x00,                   // sequence number
+///     0x12, 0x34, 0x56, 0x78, // PAN identifier and address of destination
+///     0x12, 0x34, 0x9a, 0xbc, // PAN identifier and address of source
+///     0xde, 0xf0,             // payload
+///     0x12, 0x34,             // payload
+/// ];
+///
+/// let frame: Frame = bytes.read_with(&mut 0, FooterMode::Explicit).unwrap();
+/// let header = frame.header;
+///
+/// assert_eq!(frame.header.seq,       0x00);
+/// assert_eq!(header.frame_type,      FrameType::Data);
+/// assert_eq!(header.security,        Security::None);
+/// assert_eq!(header.frame_pending,   false);
+/// assert_eq!(header.ack_request,     false);
+/// assert_eq!(header.pan_id_compress, false);
+///
+/// assert_eq!(
+///     frame.header.destination,
+///     Some(Address::Short(PanId(0x3412), ShortAddress(0x7856)))
+/// );
+/// assert_eq!(
+///     frame.header.source,
+///     Some(Address::Short(PanId(0x3412), ShortAddress(0xbc9a)))
+/// );
+///
+/// assert_eq!(frame.payload, &[0xde, 0xf0]);
+///
+/// assert_eq!(frame.footer, [0x12, 0x34]);
+/// #
+/// # Ok(())
+/// # }
+/// ```
+/// Encodes the frame into a buffer
+///
+/// # Example
+///
+/// ## allocation allowed
+/// ``` rust
+/// use ieee802154::mac::{
+///   Frame,
+///   FrameContent,
+///   FooterMode,
+///   Address,
+///   ShortAddress,
+///   FrameType,
+///   FrameVersion,
+///   Header,
+///   PanId,
+///   Security,
+/// };
+/// use byte::BytesExt;
+///
+/// let frame = Frame {
+///     header: Header {
+///         frame_type:      FrameType::Data,
+///         security:        Security::None,
+///         frame_pending:   false,
+///         ack_request:     false,
+///         pan_id_compress: false,
+///         version:         FrameVersion::Ieee802154_2006,
+///
+///         seq:             0x00,
+///         destination: Some(Address::Short(PanId(0x1234), ShortAddress(0x5678))),
+///         source:      Some(Address::Short(PanId(0x1234), ShortAddress(0x9abc))),
+///     },
+///     content: FrameContent::Data,
+///     payload: &[0xde, 0xf0],
+///     footer:  [0x12, 0x34]
+/// };
+///
+/// // Work also with `let mut bytes = Vec::new()`;
+/// let mut bytes = [0u8; 32];
+/// let mut len = 0usize;
+///
+/// bytes.write_with(&mut len, frame, FooterMode::Explicit).unwrap();
+///
+/// let expected_bytes = [
+///     0x01, 0x98,             // frame control
+///     0x00,                   // sequence number
+///     0x34, 0x12, 0x78, 0x56, // PAN identifier and address of destination
+///     0x34, 0x12, 0xbc, 0x9a, // PAN identifier and address of source
+///     0xde, 0xf0,             // payload
+///     0x12, 0x34              // footer
+/// ];
+/// assert_eq!(bytes[..len], expected_bytes);
+/// ```
+///
+/// [decode]: #method.try_read
+/// [encode]: #method.try_write
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct Frame<'p> {
     /// Header
@@ -50,263 +163,69 @@ pub struct Frame<'p> {
     pub footer: [u8; 2],
 }
 
-impl<'p> Frame<'p> {
-    /// Decodes a frame from a byte buffer
-    ///
-    /// # Errors
-    ///
-    /// This function returns an error, if the bytes either don't encode a valid
-    /// IEEE 802.15.4 frame, or encode a frame that is not fully supported by
-    /// this implementation. Please refer to [`DecodeError`] for details.
-    ///
-    /// # Example
-    ///
-    /// ``` rust
-    /// use ieee802154::mac::frame::{
-    ///     Frame,
-    ///     header::{
-    ///       Address,
-    ///       ShortAddress,
-    ///       FrameType,
-    ///       PanId,
-    ///       Security
-    /// }};
-    ///
-    /// # fn main() -> Result<(), ::ieee802154::mac::frame::DecodeError> {
-    /// // Construct a simple MAC frame. The CRC checksum (the last 2 bytes) is
-    /// // invalid, for the sake of convenience.
-    /// let bytes = [
-    ///     0x01, 0x98,             // frame control
-    ///     0x00,                   // sequence number
-    ///     0x12, 0x34, 0x56, 0x78, // PAN identifier and address of destination
-    ///     0x12, 0x34, 0x9a, 0xbc, // PAN identifier and address of source
-    ///     0xde, 0xf0,             // payload
-    ///     0x12, 0x34,             // footer
-    /// ];
-    ///
-    /// let frame = Frame::decode(&bytes, true)?;
-    /// let header = frame.header;
-    ///
-    /// assert_eq!(frame.header.seq,       0x00);
-    /// assert_eq!(header.frame_type,      FrameType::Data);
-    /// assert_eq!(header.security,        Security::None);
-    /// assert_eq!(header.frame_pending,   false);
-    /// assert_eq!(header.ack_request,     false);
-    /// assert_eq!(header.pan_id_compress, false);
-    ///
-    /// assert_eq!(
-    ///     frame.header.destination,
-    ///     Some(Address::Short(PanId(0x3412), ShortAddress(0x7856)))
-    /// );
-    /// assert_eq!(
-    ///     frame.header.source,
-    ///     Some(Address::Short(PanId(0x3412), ShortAddress(0xbc9a)))
-    /// );
-    ///
-    /// assert_eq!(frame.payload, &[0xde, 0xf0]);
-    /// assert_eq!(frame.footer,  [0x12, 0x34]);
-    /// #
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn decode(mut buf: &'p [u8], contains_footer: bool) -> Result<Self, DecodeError> {
-        let orginal_buf = buf;
-
-        let header = Header::decode(&mut buf)?;
-
-        let content = FrameContent::decode(&mut buf, &header)?;
-
-        let taken_bytes = orginal_buf.len() - buf.remaining();
-        let payload_with_footer = &orginal_buf[taken_bytes..];
-
-        if payload_with_footer.len() != buf.remaining() {
-            panic!(
-                "Noncontinuous Buf implementation aren't supported. Consider use `bytes::Bytes`"
-            );
+impl TryWrite<FooterMode> for Frame<'_> {
+    fn try_write(self, bytes: &mut [u8], mode: FooterMode) -> byte::Result<usize> {
+        let offset = &mut 0;
+        bytes.write(offset, self.header)?;
+        bytes.write(offset, self.content)?;
+        bytes.write(offset, self.payload)?;
+        match mode {
+            FooterMode::None => {}
+            FooterMode::Explicit => bytes.write(offset, &self.footer[..])?,
         }
-        buf.advance(buf.remaining());
-
-        let mut footer = [0; 2];
-        let payload = if contains_footer {
-            if payload_with_footer.len() < 2 {
-                return Err(DecodeError::NotEnoughBytes);
-            }
-            let footer_pos = payload_with_footer.len() - 2;
-            footer.copy_from_slice(&payload_with_footer[footer_pos..]);
-            &payload_with_footer[..footer_pos]
-        } else {
-            payload_with_footer
-        };
-
-        Ok(Frame {
-            header,
-            content,
-            payload,
-            footer,
-        })
-    }
-
-    /// Encodes the frame into a buffer
-    ///
-    /// # Example
-    ///
-    /// ## allocation allowed
-    /// ``` rust
-    /// use ieee802154::mac::{
-    ///   Frame,
-    ///   FrameContent,
-    ///   WriteFooter,
-    ///   Address,
-    ///   ShortAddress,
-    ///   FrameType,
-    ///   FrameVersion,
-    ///   Header,
-    ///   PanId,
-    ///   Security,
-    /// };
-    ///
-    /// let frame = Frame {
-    ///     header: Header {
-    ///         frame_type:      FrameType::Data,
-    ///         security:        Security::None,
-    ///         frame_pending:   false,
-    ///         ack_request:     false,
-    ///         pan_id_compress: false,
-    ///         version:         FrameVersion::Ieee802154_2006,
-    ///
-    ///         seq:             0x00,
-    ///         destination: Some(Address::Short(PanId(0x1234), ShortAddress(0x5678))),
-    ///         source:      Some(Address::Short(PanId(0x1234), ShortAddress(0x9abc))),
-    ///     },
-    ///     content: FrameContent::Data,
-    ///     payload: &[0xde, 0xf0],
-    ///     footer:  [0x12, 0x34]
-    /// };
-    ///
-    /// // Work also with `let mut bytes = Vec::new()`;
-    /// let mut bytes = bytes::BytesMut::with_capacity(32);
-    ///
-    /// frame.encode(&mut bytes, WriteFooter::No);
-    /// let encoded_bytes = bytes.split().freeze();
-    ///
-    /// let expected_bytes = [
-    ///     0x01, 0x98,             // frame control
-    ///     0x00,                   // sequence number
-    ///     0x34, 0x12, 0x78, 0x56, // PAN identifier and address of destination
-    ///     0x34, 0x12, 0xbc, 0x9a, // PAN identifier and address of source
-    ///     0xde, 0xf0,             // payload
-    ///    // footer, not written
-    /// ];
-    /// assert_eq!(encoded_bytes[..], expected_bytes[..]);
-    /// ```
-    /// ## When allocation is not an option
-    ///
-    /// [`BufMut`] is implemented for `&mut [u8]` but there are common problems:
-    /// - panic when try put more data than capacity
-    /// - access to written bytes require some boilerplate
-    ///
-    /// We recommend to use [`SafeBytesSlice`] as wrapper.
-    ///
-    /// ``` rust
-    /// # use ieee802154::mac::{
-    /// #   Frame,
-    /// #   FrameContent,
-    /// #   WriteFooter,
-    /// #   Address,
-    /// #   ShortAddress,
-    /// #   FrameType,
-    /// #   FrameVersion,
-    /// #   Header,
-    /// #   PanId,
-    /// #   Security,
-    /// # };
-    /// #
-    /// # let frame = Frame {
-    /// #     header: Header {
-    /// #         frame_type:      FrameType::Data,
-    /// #         security:        Security::None,
-    /// #         frame_pending:   false,
-    /// #         ack_request:     false,
-    /// #         pan_id_compress: false,
-    /// #         version:         FrameVersion::Ieee802154_2006,
-    /// #
-    /// #         seq:             0x00,
-    /// #         destination: Some(Address::Short(PanId(0x1234), ShortAddress(0x5678))),
-    /// #         source:      Some(Address::Short(PanId(0x1234), ShortAddress(0x9abc))),
-    /// #     },
-    /// #     content: FrameContent::Data,
-    /// #     payload: &[0xde, 0xf0],
-    /// #     footer:  [0x12, 0x34]
-    /// # };
-    /// # let expected_bytes = [
-    /// #     0x01, 0x98,             // frame control
-    /// #     0x00,                   // sequence number
-    /// #     0x34, 0x12, 0x78, 0x56, // PAN identifier and address of destination
-    /// #     0x34, 0x12, 0xbc, 0x9a, // PAN identifier and address of source
-    /// #     0xde, 0xf0,             // payload
-    /// #    // footer, not written
-    /// # ];
-    ///
-    /// /* Note */
-    /// /* variables `frame` and `expected_bytes` are the same as in example above */
-    ///
-    /// /* Example use raw `&mut [u8]`  */
-    /// let mut bytes = [0u8; 64];
-    /// let mut slice = &mut bytes[..];
-    /// let org_bytes_size = slice.len();
-    /// // assume frame is the same as in example above
-    /// // This function will panic if encode want to put more than bytes.len() ⚠️
-    /// frame.encode(&mut slice, WriteFooter::No);
-    /// let written_bytes = org_bytes_size - slice.len();
-    /// let encoded_bytes = &bytes[..written_bytes];
-    /// assert_eq!(expected_bytes[..], encoded_bytes[..]);
-    ///
-    /// /* Example that use SafeBytesSlice */
-    /// use static_bytes::SafeBytesSlice;
-    /// use core::mem::MaybeUninit;
-    /// // a small optimization. SafeBytesSlice works also with `let mut uninit_bytes = [0u8; 64];`
-    /// let mut uninit_bytes: [MaybeUninit<u8>; 64] = unsafe { MaybeUninit::uninit().assume_init() };
-    /// let mut safce_slice = SafeBytesSlice::from(&mut uninit_bytes[..]);
-    /// frame.encode(&mut safce_slice, WriteFooter::No);
-    /// // no panic 🦀
-    /// // no manually bytes counting 🦀
-    /// match safce_slice.try_into_bytes() {
-    ///    Ok(bytes) => assert_eq!(bytes[..], expected_bytes[..]),
-    ///    Err(_err) => todo!("handle not enough capacity"),
-    /// };
-    /// ```
-    /// [`BufMut`]: bytes::buf::BufMut
-    /// [`SafeBytesSlice`]: https://docs.rs/static-bytes/0.1/static_bytes/struct.SafeBytesSlice.html
-    pub fn encode(&self, buf: &mut dyn BufMut, write_footer: WriteFooter) {
-        // Write header
-        self.header.encode(buf);
-
-        // Write content
-        self.content.encode(buf);
-
-        // Write payload
-        buf.put_slice(self.payload);
-
-        // Write footer
-        match write_footer {
-            WriteFooter::No => (),
-        }
+        Ok(*offset)
     }
 }
 
-/// Tells [`Frame::encode`] whether to write the footer
+impl<'a> TryRead<'a, FooterMode> for Frame<'a> {
+    fn try_read(bytes: &'a [u8], mode: FooterMode) -> byte::Result<(Self, usize)> {
+        let offset = &mut 0;
+        let header = bytes.read(offset)?;
+        let content = bytes.read_with(offset, &header)?;
+        let (payload, footer) = match mode {
+            FooterMode::None => (
+                bytes.read_with(offset, Bytes::Len(bytes.len() - *offset))?,
+                0u16,
+            ),
+            FooterMode::Explicit => (
+                bytes.read_with(offset, Bytes::Len(bytes.len() - *offset - 2))?,
+                bytes.read_with(offset, LE)?,
+            ),
+        };
+        Ok((
+            Frame {
+                header: header,
+                content: content,
+                payload,
+                footer: footer.to_le_bytes(),
+            },
+            *offset,
+        ))
+    }
+}
+
+///
+/// Controls whether the footer is read/written with the frame
 ///
 /// Eventually, this should support three options:
-/// - Don't write the footer
-/// - Calculate the 2-byte CRC checksum and write that as the footer
-/// - Write the footer as written into the `footer` field
+/// 1. Don't read or write the footer
+/// 2. Calculate the 2-byte CRC checksum and write that as the footer or check against read value
+/// 3. Read into or write the footer from the `footer` field
 ///
-/// For now, only not writing the footer is supported.
+/// For now, only 1 and 3 are supported.
 ///
-/// [`Frame::encode`](Frame::encode)
-pub enum WriteFooter {
-    /// Don't write the footer
-    No,
+/// [`Frame::try_write`](Frame::try_write)
+pub enum FooterMode {
+    /// Don't read/write the footer
+    None,
+    /// Read into or write the footer from the `footer` field
+    Explicit,
+}
+
+impl Default for FooterMode {
+    fn default() -> Self {
+        Self::None
+    }
 }
 
 /// Content of a frame
@@ -322,29 +241,30 @@ pub enum FrameContent {
     Command(Command),
 }
 
-impl FrameContent {
-    /// Decode frame content from byte buffer
-    pub fn decode(buf: &mut dyn Buf, header: &Header) -> Result<Self, DecodeError> {
-        match header.frame_type {
-            FrameType::Beacon => {
-                let beacon = Beacon::decode(buf)?;
-                Ok(FrameContent::Beacon(beacon))
-            }
-            FrameType::Data => Ok(FrameContent::Data),
-            FrameType::Acknowledgement => Ok(FrameContent::Acknowledgement),
-            FrameType::MacCommand => {
-                let command = Command::decode(buf)?;
-                Ok(FrameContent::Command(command))
-            }
-        }
-    }
-    /// Encode frame content into byte buffer
-    pub fn encode(&self, buf: &mut dyn BufMut) {
+impl TryWrite for FrameContent {
+    fn try_write(self, bytes: &mut [u8], _ctx: ()) -> byte::Result<usize> {
+        let offset = &mut 0;
         match self {
-            FrameContent::Beacon(beacon) => beacon.encode(buf),
+            FrameContent::Beacon(beacon) => bytes.write(offset, beacon)?,
             FrameContent::Data | FrameContent::Acknowledgement => (),
-            FrameContent::Command(command) => command.encode(buf),
-        }
+            FrameContent::Command(command) => bytes.write(offset, command)?,
+        };
+        Ok(*offset)
+    }
+}
+
+impl TryRead<'_, &Header> for FrameContent {
+    fn try_read(bytes: &[u8], header: &Header) -> byte::Result<(Self, usize)> {
+        let offset = &mut 0;
+        Ok((
+            match header.frame_type {
+                FrameType::Beacon => FrameContent::Beacon(bytes.read(offset)?),
+                FrameType::Data => FrameContent::Data,
+                FrameType::Acknowledgement => FrameContent::Acknowledgement,
+                FrameType::MacCommand => FrameContent::Command(bytes.read(offset)?),
+            },
+            *offset,
+        ))
     }
 }
 
@@ -370,21 +290,42 @@ pub enum DecodeError {
     InvalidValue,
 }
 
+impl From<DecodeError> for byte::Error {
+    fn from(e: DecodeError) -> Self {
+        match e {
+            DecodeError::NotEnoughBytes => byte::Error::Incomplete,
+            DecodeError::InvalidFrameType(_) => byte::Error::BadInput {
+                err: "InvalidFrameType",
+            },
+            DecodeError::SecurityNotSupported => byte::Error::BadInput {
+                err: "SecurityNotSupported",
+            },
+            DecodeError::InvalidAddressMode(_) => byte::Error::BadInput {
+                err: "InvalidAddressMode",
+            },
+            DecodeError::InvalidFrameVersion(_) => byte::Error::BadInput {
+                err: "InvalidFrameVersion",
+            },
+            DecodeError::InvalidValue => byte::Error::BadInput {
+                err: "InvalidValue",
+            },
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::mac::beacon;
     use crate::mac::command;
     use crate::mac::{Address, ExtendedAddress, FrameVersion, PanId, Security, ShortAddress};
-    use bytes::BytesMut;
 
     #[test]
     fn decode_ver0_pan_id_compression() {
         let data = [
             0x41, 0x88, 0x91, 0x8f, 0x20, 0xff, 0xff, 0x33, 0x44, 0x00, 0x00,
         ];
-        let mut sliced_data = &data[..];
-        let frame = Frame::decode(&mut sliced_data, true).unwrap();
+        let frame: Frame = data.read(&mut 0).unwrap();
         let hdr = frame.header;
         assert_eq!(hdr.frame_type, FrameType::Data);
         assert_eq!(hdr.security, Security::None);
@@ -408,11 +349,10 @@ mod tests {
         let data = [
             0x41, 0x80, 0x91, 0x8f, 0x20, 0xff, 0xff, 0x33, 0x44, 0x00, 0x00,
         ];
-        let mut sliced_data = &data[..];
-        let frame = Frame::decode(&mut sliced_data, true);
+        let frame = data.read::<Frame>(&mut 0);
         assert!(frame.is_err());
         if let Err(e) = frame {
-            assert_eq!(e, DecodeError::InvalidAddressMode(0))
+            assert_eq!(e, DecodeError::InvalidAddressMode(0).into())
         }
     }
 
@@ -422,7 +362,7 @@ mod tests {
             0x21, 0xc8, 0x8b, 0xff, 0xff, 0x02, 0x00, 0x23, 0x00, 0x60, 0xe2, 0x16, 0x21, 0x1c,
             0x4a, 0xc2, 0xae, 0xaa, 0xbb, 0xcc,
         ];
-        let frame = Frame::decode(&data[..], true).unwrap();
+        let frame: Frame = data.read(&mut 0).unwrap();
         let hdr = frame.header;
         assert_eq!(hdr.frame_type, FrameType::Data);
         assert_eq!(hdr.security, Security::None);
@@ -463,13 +403,11 @@ mod tests {
             footer: [0x00, 0x00],
         };
         let mut buf = [0u8; 32];
-        let buf_len = buf.len();
-        let mut sliced_buf = &mut buf[..];
-        frame.encode(&mut sliced_buf, WriteFooter::No);
-        let size = buf_len - sliced_buf.len();
-        assert_eq!(size, 13);
+        let mut len = 0usize;
+        buf.write(&mut len, frame).unwrap();
+        assert_eq!(len, 13);
         assert_eq!(
-            buf[..size],
+            buf[..len],
             [0x01, 0x88, 0x01, 0x34, 0x12, 0x78, 0x56, 0x21, 0x43, 0xbc, 0x9a, 0xde, 0xf0]
         );
     }
@@ -506,12 +444,12 @@ mod tests {
             payload: &[0xde, 0xf0],
             footer: [0x00, 0x00],
         };
-        let mut buf = BytesMut::with_capacity(32);
-        frame.encode(&mut buf, WriteFooter::No);
-        let encoded_buf = buf.freeze();
-        assert_eq!(encoded_buf.len(), 23);
+        let mut buf = [0u8; 32];
+        let mut len = 0usize;
+        buf.write(&mut len, frame).unwrap();
+        assert_eq!(len, 23);
         assert_eq!(
-            &encoded_buf[..],
+            buf[..len],
             [
                 0x10, 0x9c, 0xff, 0x34, 0x12, 0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, 0x21,
                 0x43, 0xbc, 0x9a, 0xff, 0x0f, 0x00, 0x00, 0xde, 0xf0
@@ -540,12 +478,12 @@ mod tests {
             payload: &[],
             footer: [0x00, 0x00],
         };
-        let mut buf = BytesMut::with_capacity(32);
-        frame.encode(&mut buf, WriteFooter::No);
-        let encoded_buf = buf.freeze();
-        assert_eq!(encoded_buf.len(), 15);
+        let mut buf = [0u8; 32];
+        let mut len = 0usize;
+        buf.write(&mut len, frame).unwrap();
+        assert_eq!(len, 15);
         assert_eq!(
-            &encoded_buf[..],
+            buf[..len],
             [
                 0x42, 0x8c, 0xff, 0x34, 0x12, 0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, 0xbc,
                 0x9a
@@ -571,15 +509,10 @@ mod tests {
             payload: &[],
             footer: [0x00, 0x00],
         };
-        const BUF_SIZE: usize = 32;
-        let mut buf = [0u8; BUF_SIZE];
-        let mut sliced_buf = &mut buf[..];
-        frame.encode(&mut sliced_buf, WriteFooter::No);
-        let size = BUF_SIZE - sliced_buf.remaining_mut();
-        assert_eq!(size, 8);
-        assert_eq!(
-            buf[..size],
-            [0x23, 0xa0, 0xff, 0x34, 0x12, 0xbc, 0x9a, 0x04]
-        );
+        let mut buf = [0u8; 32];
+        let mut len = 0usize;
+        buf.write(&mut len, frame).unwrap();
+        assert_eq!(len, 8);
+        assert_eq!(buf[..len], [0x23, 0xa0, 0xff, 0x34, 0x12, 0xbc, 0x9a, 0x04]);
     }
 }

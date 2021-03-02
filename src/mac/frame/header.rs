@@ -3,7 +3,8 @@
 //! The main type in this module is [`Header`], the header of 802.15.4 MAC frame.
 //!
 //! [`Header`]: struct.Header.html
-use bytes::{Buf, BufMut};
+
+use byte::{check_len, BytesExt, TryRead, TryWrite, LE};
 use hash32_derive::Hash32;
 
 use super::frame_control::*;
@@ -68,72 +69,14 @@ pub struct Header {
     pub source: Option<Address>,
 }
 
-impl Header {
-    /// Decodes a mac header from a byte buffer.
-    ///
-    /// This method is used by [`Frame::decode`] to decode the mac header.
-    /// Unless you decide to write your own code for decoding frames, there
-    /// should be no reason to call this method directly.
-    ///
-    /// # Errors
-    ///
-    /// This function returns an error, if the bytes either don't encode a valid
-    /// IEEE 802.15.4 frame header, or encode a frame header that is not fully
-    /// supported by this implementation. Please refer to [`DecodeError`] for
-    /// details.
-    ///
-    /// # Example
-    ///
-    /// ``` rust
-    /// use ieee802154::mac::{
-    ///     Address,
-    ///     ShortAddress,
-    ///     FrameType,
-    ///     Header,
-    ///     PanId,
-    ///     Security,
-    /// };
-    ///
-    /// # fn main() -> Result<(), ::ieee802154::mac::frame::DecodeError> {
-    /// // Construct a simple header.
-    /// let mut bytes = &[
-    ///     0x01, 0x98,             // frame control
-    ///     0x00,                   // sequence number
-    ///     0x12, 0x34, 0x56, 0x78, // PAN identifier and address of destination
-    ///     0x12, 0x34, 0x9a, 0xbc, // PAN identifier and address of source
-    /// ][..];
-    ///
-    /// let header = Header::decode(&mut bytes)?;
-    ///
-    /// assert_eq!(header.frame_type,      FrameType::Data);
-    /// assert_eq!(header.security,        Security::None);
-    /// assert_eq!(header.frame_pending,   false);
-    /// assert_eq!(header.ack_request,     false);
-    /// assert_eq!(header.pan_id_compress, false);
-    /// assert_eq!(header.seq,             0x00);
-    ///
-    /// assert_eq!(
-    ///     header.destination,
-    ///     Some(Address::Short(PanId(0x3412), ShortAddress(0x7856)))
-    /// );
-    /// assert_eq!(
-    ///     header.source,
-    ///     Some(Address::Short(PanId(0x3412), ShortAddress(0xbc9a)))
-    /// );
-    /// #
-    /// # Ok(())
-    /// # }
-    /// ```
-    ///
-    /// [`Frame::decode`]: super::Frame
-    pub fn decode(buf: &mut dyn Buf) -> Result<Self, DecodeError> {
+impl TryRead<'_> for Header {
+    fn try_read(bytes: &[u8], _ctx: ()) -> byte::Result<(Self, usize)> {
+        let offset = &mut 0;
         // Make sure we have enough buffer for the Frame Control field
-        if buf.remaining() < 3 {
-            return Err(DecodeError::NotEnoughBytes);
-        }
+        check_len(&bytes, 3)?;
 
         /* Decode Frame Control Field */
-        let bits = buf.get_u16_le();
+        let bits: u16 = bytes.read_with(offset, LE)?;
 
         let frame_type = ((bits & mask::FRAME_TYPE) >> offset::FRAME_TYPE) as u8;
         let security = ((bits & mask::SECURITY) >> offset::SECURITY) as u8;
@@ -155,7 +98,7 @@ impl Header {
 
         // make bool values
         let security = if security > 0 {
-            return Err(DecodeError::SecurityNotSupported);
+            return Err(DecodeError::SecurityNotSupported.into());
         } else {
             Security::None
         };
@@ -165,17 +108,44 @@ impl Header {
 
         /* Decode header depending on Frame Control Fields */
 
-        let seq = buf.get_u8();
+        let seq = bytes.read(offset)?;
 
-        let destination = Address::decode(buf, &dest_addr_mode)?;
+        let destination = match dest_addr_mode {
+            AddressMode::None => None,
+            AddressMode::Short => Some(Address::Short(bytes.read(offset)?, bytes.read(offset)?)),
+            AddressMode::Extended => {
+                Some(Address::Extended(bytes.read(offset)?, bytes.read(offset)?))
+            }
+        };
 
-        let source = if !pan_id_compress {
-            Address::decode(buf, &src_addr_mode)?
-        } else {
-            let pan_id = destination
-                .ok_or(DecodeError::InvalidAddressMode(dest_addr_mode.as_u8()))?
-                .pan_id();
-            Address::decode_compress(buf, &src_addr_mode, pan_id)?
+        if pan_id_compress {
+            destination.ok_or(byte::Error::BadInput {
+                err: "InvalidAddressMode",
+            })?;
+        }
+
+        let source = match src_addr_mode {
+            AddressMode::None => None,
+            AddressMode::Short => {
+                if pan_id_compress {
+                    Some(Address::Short(
+                        destination.unwrap().pan_id(),
+                        bytes.read(offset)?,
+                    ))
+                } else {
+                    Some(Address::Short(bytes.read(offset)?, bytes.read(offset)?))
+                }
+            }
+            AddressMode::Extended => {
+                if pan_id_compress {
+                    Some(Address::Extended(
+                        destination.unwrap().pan_id(),
+                        bytes.read(offset)?,
+                    ))
+                } else {
+                    Some(Address::Extended(bytes.read(offset)?, bytes.read(offset)?))
+                }
+            }
         };
 
         let header = Header {
@@ -191,57 +161,13 @@ impl Header {
             source,
         };
 
-        Ok(header)
+        Ok((header, *offset))
     }
+}
 
-    /// Encodes the header into a buffer
-    ///
-    /// The header length depends on the options chosen and varies between 3 and
-    /// 30 octets.
-    ///
-    /// # Example
-    ///
-    /// ``` rust
-    /// use bytes::BytesMut;
-    /// use ieee802154::mac::{
-    ///     Address,
-    ///     AddressMode,
-    ///     ShortAddress,
-    ///     FrameType,
-    ///     FrameVersion,
-    ///     Header,
-    ///     PanId,
-    ///     Security,
-    /// };
-    ///
-    /// let header = Header {
-    ///     frame_type:      FrameType::Data,
-    ///     security:        Security::None,
-    ///     frame_pending:   false,
-    ///     ack_request:     false,
-    ///     pan_id_compress: false,
-    ///     version:         FrameVersion::Ieee802154_2006,
-    ///     seq:             0x00,
-    ///
-    ///     destination: Some(Address::Short(PanId(0x1234), ShortAddress(0x5678))),
-    ///     source:      Some(Address::Short(PanId(0x1234), ShortAddress(0x9abc))),
-    /// };
-    ///
-    /// let mut bytes = BytesMut::with_capacity(11);
-    ///
-    /// header.encode(&mut bytes);
-    /// let encoded_bytes = bytes.split().freeze();
-    ///
-    /// let expected_bytes = [
-    ///     0x01, 0x98,             // frame control
-    ///     0x00,                   // sequence number
-    ///     0x34, 0x12, 0x78, 0x56, // PAN identifier and address of destination
-    ///     0x34, 0x12, 0xbc, 0x9a, // PAN identifier and address of source
-    /// ];
-    /// assert_eq!(encoded_bytes, expected_bytes[..]);
-    /// ```
-    pub fn encode(&self, buf: &mut dyn BufMut) {
-        /* Encode Frame Control fields */
+impl TryWrite for Header {
+    fn try_write(self, bytes: &mut [u8], _ctx: ()) -> byte::Result<usize> {
+        let offset = &mut 0;
         let dest_addr_mode = AddressMode::from(self.destination);
         let src_addr_mode = AddressMode::from(self.source);
 
@@ -254,28 +180,29 @@ impl Header {
             | (self.version as u16) << offset::VERSION
             | (src_addr_mode as u16) << offset::SRC_ADDR_MODE;
 
-        buf.put_u16_le(frame_control_raw);
+        bytes.write_with(offset, frame_control_raw, LE)?;
 
         // Write Sequence Number
-        buf.put_u8(self.seq);
+        bytes.write(offset, self.seq)?;
 
         // Write addresses
         if let Some(destination) = self.destination {
-            destination.encode(buf);
+            bytes.write_with(offset, destination, AddressEncoding::Normal)?;
         }
 
         match (self.source, self.pan_id_compress) {
             (Some(source), true) => {
-                source.encode_compress(buf);
+                bytes.write_with(offset, source, AddressEncoding::Compressed)?;
             }
             (Some(source), false) => {
-                source.encode(buf);
+                bytes.write_with(offset, source, AddressEncoding::Normal)?;
             }
             (None, true) => {
                 panic!("frame control request compress source address without contain this address")
             }
             (None, false) => (),
         }
+        Ok(*offset)
     }
 }
 
@@ -298,54 +225,20 @@ impl PanId {
     pub fn broadcast() -> Self {
         Self(0xffff)
     }
+}
 
-    /// Decodes an PAN identifier from a byte buffer
-    ///
-    /// # Errors
-    ///
-    /// This function returns an error, if there are not enough bytes in the
-    /// buffer to encode a valid `Address` instance.
-    ///
-    /// # Example
-    ///
-    /// ``` rust
-    /// use ieee802154::mac::PanId;
-    ///
-    /// # fn main() -> Result<(), ::ieee802154::mac::frame::DecodeError> {
-    /// let mut bytes = &[0x56, 0x78][..];
-    /// let address = PanId::decode(&mut bytes)?;
-    ///
-    /// assert_eq!(address.0, 0x7856);
-    /// #
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn decode(buf: &mut dyn Buf) -> Result<Self, DecodeError> {
-        if buf.remaining() < 2 {
-            return Err(DecodeError::NotEnoughBytes);
-        }
-
-        Ok(PanId(buf.get_u16_le()))
+impl TryWrite for PanId {
+    fn try_write(self, bytes: &mut [u8], _ctx: ()) -> byte::Result<usize> {
+        let offset = &mut 0;
+        bytes.write_with(offset, self.0, LE)?;
+        Ok(*offset)
     }
+}
 
-    /// Encodes the PAN identifier into a buffer
-    ///
-    /// # Example
-    ///
-    /// ``` rust
-    /// use ieee802154::mac::PanId;
-    /// use bytes::BytesMut;
-    ///
-    /// let address = PanId(0x1234);
-    ///
-    /// let mut bytes = BytesMut::with_capacity(2);
-    /// address.encode(&mut bytes);
-    ///
-    /// let expected_bytes = [0x34, 0x12];
-    /// assert_eq!(bytes[..], expected_bytes[..]);
-    /// ```
-    pub fn encode(&self, buf: &mut dyn BufMut) {
-        buf.put_u16_le(self.0)
+impl TryRead<'_> for PanId {
+    fn try_read(bytes: &[u8], _ctx: ()) -> byte::Result<(Self, usize)> {
+        let offset = &mut 0;
+        Ok((Self(bytes.read_with(offset, LE)?), *offset))
     }
 }
 
@@ -372,57 +265,20 @@ impl ShortAddress {
     pub fn broadcast() -> Self {
         ShortAddress(0xffff)
     }
+}
 
-    /// Decodes an address from a byte buffer
-    ///
-    /// This method is used by [`Header::decode`] to decode addresses. Unless
-    /// you decide to write your own code for decoding headers, there should be
-    /// no reason to call this method directly.
-    ///
-    /// # Errors
-    ///
-    /// This function returns an error, if there are not enough bytes in the
-    /// buffer to encode a valid `Address` instance.
-    ///
-    /// # Example
-    ///
-    /// ``` rust
-    /// use ieee802154::mac::frame::{DecodeError, header::ShortAddress};
-    ///
-    /// # fn main() -> Result<(), DecodeError> {
-    /// let mut bytes = &[0x56, 0x78][..];
-    /// let address = ShortAddress::decode(&mut bytes)?;
-    ///
-    /// assert_eq!(address, ShortAddress(0x7856));
-    /// #
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn decode(buf: &mut dyn Buf) -> Result<Self, DecodeError> {
-        if buf.remaining() < 2 {
-            return Err(DecodeError::NotEnoughBytes);
-        }
-
-        Ok(ShortAddress(buf.get_u16_le()))
+impl TryWrite for ShortAddress {
+    fn try_write(self, bytes: &mut [u8], _ctx: ()) -> byte::Result<usize> {
+        let offset = &mut 0;
+        bytes.write_with(offset, self.0, LE)?;
+        Ok(*offset)
     }
+}
 
-    /// Encodes the address into a buffer
-    ///
-    /// # Example
-    ///
-    /// ``` rust
-    /// use ieee802154::mac::ShortAddress;
-    ///
-    /// let address = ShortAddress(0x5678);
-    ///
-    /// let mut bytes = bytes::BytesMut::with_capacity(2);
-    /// address.encode(&mut bytes);
-    ///
-    /// let expected_bytes = [0x78, 0x56];
-    /// assert_eq!(bytes[..], expected_bytes[..]);
-    /// ```
-    pub fn encode(&self, buf: &mut dyn BufMut) {
-        buf.put_u16_le(self.0)
+impl TryRead<'_> for ShortAddress {
+    fn try_read(bytes: &[u8], _ctx: ()) -> byte::Result<(Self, usize)> {
+        let offset = &mut 0;
+        Ok((Self(bytes.read_with(offset, LE)?), *offset))
     }
 }
 
@@ -448,18 +304,20 @@ impl ExtendedAddress {
     pub fn broadcast() -> Self {
         ExtendedAddress(0xffffffffffffffffu64)
     }
+}
 
-    /// Decodes an address from a byte buffer
-    pub fn decode(buf: &mut dyn Buf) -> Result<Self, DecodeError> {
-        if buf.remaining() < 8 {
-            return Err(DecodeError::NotEnoughBytes);
-        }
-        Ok(ExtendedAddress(buf.get_u64_le()))
+impl TryWrite for ExtendedAddress {
+    fn try_write(self, bytes: &mut [u8], _ctx: ()) -> byte::Result<usize> {
+        let offset = &mut 0;
+        bytes.write_with(offset, self.0, LE)?;
+        Ok(*offset)
     }
+}
 
-    /// Encodes the address into a buffer
-    pub fn encode(&self, buf: &mut dyn BufMut) {
-        buf.put_u64_le(self.0)
+impl TryRead<'_> for ExtendedAddress {
+    fn try_read(bytes: &[u8], _ctx: ()) -> byte::Result<(Self, usize)> {
+        let offset = &mut 0;
+        Ok((Self(bytes.read_with(offset, LE)?), *offset))
     }
 }
 
@@ -470,6 +328,35 @@ pub enum Address {
     Short(PanId, ShortAddress),
     /// Extended (64-bit) address and PAN ID (16-bit)
     Extended(PanId, ExtendedAddress),
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+enum AddressEncoding {
+    Normal,
+    Compressed,
+}
+
+impl TryWrite<AddressEncoding> for Address {
+    fn try_write(self, bytes: &mut [u8], enc: AddressEncoding) -> byte::Result<usize> {
+        let offset = &mut 0;
+        match (self, enc) {
+            (Address::Short(pan_id, addr), AddressEncoding::Normal) => {
+                bytes.write(offset, pan_id)?;
+                bytes.write(offset, addr)?;
+            }
+            (Address::Short(_pan_id, addr), AddressEncoding::Compressed) => {
+                bytes.write(offset, addr)?;
+            }
+            (Address::Extended(pan_id, addr), AddressEncoding::Normal) => {
+                bytes.write(offset, pan_id)?;
+                bytes.write(offset, addr)?;
+            }
+            (Address::Extended(_pan_id, addr), AddressEncoding::Compressed) => {
+                bytes.write(offset, addr)?;
+            }
+        }
+        Ok(*offset)
+    }
 }
 
 impl Address {
@@ -485,66 +372,6 @@ impl Address {
                 PanId::broadcast(),
                 ExtendedAddress::broadcast(),
             )),
-        }
-    }
-
-    /// Decodes an address from a byte buffer
-    pub fn decode(buf: &mut dyn Buf, mode: &AddressMode) -> Result<Option<Self>, DecodeError> {
-        let opt_address = match mode {
-            AddressMode::None => None,
-            AddressMode::Short => {
-                let pan_id = PanId::decode(buf)?;
-                let short = ShortAddress::decode(buf)?;
-                Some(Address::Short(pan_id, short))
-            }
-            AddressMode::Extended => {
-                let pan_id = PanId::decode(buf)?;
-                let extended = ExtendedAddress::decode(buf)?;
-                Some(Address::Extended(pan_id, extended))
-            }
-        };
-        Ok(opt_address)
-    }
-
-    /// Decodes an address from a byte buffer
-    pub fn decode_compress(
-        buf: &mut dyn Buf,
-        mode: &AddressMode,
-        pan_id: PanId,
-    ) -> Result<Option<Self>, DecodeError> {
-        let opt_address = match mode {
-            AddressMode::None => None,
-            AddressMode::Short => {
-                let short = ShortAddress::decode(buf)?;
-                Some(Address::Short(pan_id, short))
-            }
-            AddressMode::Extended => {
-                let extended = ExtendedAddress::decode(buf)?;
-                Some(Address::Extended(pan_id, extended))
-            }
-        };
-        Ok(opt_address)
-    }
-
-    /// Encodes the address into a buffer
-    pub fn encode(&self, buf: &mut dyn BufMut) {
-        match *self {
-            Address::Short(pan_id, short) => {
-                pan_id.encode(buf);
-                short.encode(buf);
-            }
-            Address::Extended(pan_id, extended) => {
-                pan_id.encode(buf);
-                extended.encode(buf);
-            }
-        }
-    }
-
-    /// Encodes the address into a buffer
-    pub fn encode_compress(&self, buf: &mut dyn BufMut) {
-        match *self {
-            Address::Short(_, a) => a.encode(buf),
-            Address::Extended(_, a) => a.encode(buf),
         }
     }
 

@@ -8,4 +8,4 @@ pub use frame::header::{
     Address, AddressMode, ExtendedAddress, FrameType, FrameVersion, Header, PanId, Security,
     ShortAddress,
 };
-pub use frame::{DecodeError, Frame, FrameContent, WriteFooter};
+pub use frame::{DecodeError, FooterMode, Frame, FrameContent};
