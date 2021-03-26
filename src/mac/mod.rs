@@ -3,9 +3,9 @@
 pub mod beacon;
 pub mod command;
 pub mod frame;
+pub mod security;
 
 pub use frame::header::{
-    Address, AddressMode, ExtendedAddress, FrameType, FrameVersion, Header, PanId, Security,
-    ShortAddress,
+    Address, AddressMode, ExtendedAddress, FrameType, FrameVersion, Header, PanId, ShortAddress,
 };
 pub use frame::{DecodeError, FooterMode, Frame, FrameContent};

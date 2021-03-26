@@ -8,8 +8,9 @@ use byte::{check_len, BytesExt, TryRead, TryWrite, LE};
 use hash32_derive::Hash32;
 
 use super::frame_control::*;
-pub use super::frame_control::{AddressMode, FrameType, FrameVersion, Security};
+pub use super::frame_control::{AddressMode, FrameType, FrameVersion};
 use super::DecodeError;
+use crate::mac::security::auxiliary_security_header::AuxiliarySecurityHeader;
 
 /// MAC frame header
 ///
@@ -22,8 +23,8 @@ pub struct Header {
     /// Frame Type
     pub frame_type: FrameType,
 
-    /// Auxiliary Security header
-    pub security: Security,
+    /// Whether an Auxiliary Security header is present
+    pub security: bool,
 
     /// Frame Pending
     ///
@@ -67,6 +68,9 @@ pub struct Header {
 
     /// Source Address
     pub source: Option<Address>,
+
+    /// Auxiliary security header
+    pub auxiliary_security_header: Option<AuxiliarySecurityHeader>,
 }
 
 impl TryRead<'_> for Header {
@@ -97,11 +101,7 @@ impl TryRead<'_> for Header {
         let src_addr_mode = AddressMode::from_bits(src_addr_mode)?;
 
         // make bool values
-        let security = if security > 0 {
-            return Err(DecodeError::SecurityNotSupported.into());
-        } else {
-            Security::None
-        };
+        let security = security > 0;
         let frame_pending = frame_pending > 0;
         let ack_request = ack_request > 0;
         let pan_id_compress = pan_id_compress > 0;
@@ -155,10 +155,10 @@ impl TryRead<'_> for Header {
             ack_request,
             pan_id_compress,
             version,
-
             seq,
             destination,
             source,
+            auxiliary_security_header: None,
         };
 
         Ok((header, *offset))

@@ -63,7 +63,7 @@ pub use header::Header;
 ///
 /// assert_eq!(frame.header.seq,       0x00);
 /// assert_eq!(header.frame_type,      FrameType::Data);
-/// assert_eq!(header.security,        Security::None);
+/// assert_eq!(header.security,        false);
 /// assert_eq!(header.frame_pending,   false);
 /// assert_eq!(header.ack_request,     false);
 /// assert_eq!(header.pan_id_compress, false);
@@ -107,7 +107,7 @@ pub use header::Header;
 /// let frame = Frame {
 ///     header: Header {
 ///         frame_type:      FrameType::Data,
-///         security:        Security::None,
+///         security:        false,
 ///         frame_pending:   false,
 ///         ack_request:     false,
 ///         pan_id_compress: false,
@@ -286,6 +286,12 @@ pub enum DecodeError {
     /// The frame's version is invalid or not supported
     InvalidFrameVersion(u8),
 
+    /// The auxiliary security header's security level is invalid
+    InvalidSecurityLevel(u8),
+
+    /// The auxiliary security header's key identifier mode is invalid
+    InvalidKeyIdentifierMode(u8),
+
     /// The data stream contains an invalid value
     InvalidValue,
 }
@@ -309,6 +315,12 @@ impl From<DecodeError> for byte::Error {
             DecodeError::InvalidValue => byte::Error::BadInput {
                 err: "InvalidValue",
             },
+            DecodeError::InvalidSecurityLevel(_) => byte::Error::BadInput {
+                err: "InvalidSecurityLevel",
+            },
+            DecodeError::InvalidKeyIdentifierMode(_) => byte::Error::BadInput {
+                err: "InvalidKeyIdentifierMode",
+            },
         }
     }
 }
@@ -318,7 +330,7 @@ mod tests {
     use super::*;
     use crate::mac::beacon;
     use crate::mac::command;
-    use crate::mac::{Address, ExtendedAddress, FrameVersion, PanId, Security, ShortAddress};
+    use crate::mac::{Address, ExtendedAddress, FrameVersion, PanId, ShortAddress};
 
     #[test]
     fn decode_ver0_pan_id_compression() {
@@ -328,7 +340,7 @@ mod tests {
         let frame: Frame = data.read(&mut 0).unwrap();
         let hdr = frame.header;
         assert_eq!(hdr.frame_type, FrameType::Data);
-        assert_eq!(hdr.security, Security::None);
+        assert_eq!(hdr.security, false);
         assert_eq!(hdr.frame_pending, false);
         assert_eq!(hdr.ack_request, false);
         assert_eq!(hdr.pan_id_compress, true);
@@ -365,7 +377,7 @@ mod tests {
         let frame: Frame = data.read(&mut 0).unwrap();
         let hdr = frame.header;
         assert_eq!(hdr.frame_type, FrameType::Data);
-        assert_eq!(hdr.security, Security::None);
+        assert_eq!(hdr.security, false);
         assert_eq!(hdr.frame_pending, false);
         assert_eq!(hdr.ack_request, true);
         assert_eq!(hdr.pan_id_compress, false);
@@ -389,7 +401,7 @@ mod tests {
         let frame = Frame {
             header: Header {
                 frame_type: FrameType::Data,
-                security: Security::None,
+                security: false,
                 frame_pending: false,
                 ack_request: false,
                 pan_id_compress: false,
@@ -397,6 +409,7 @@ mod tests {
                 destination: Some(Address::Short(PanId(0x1234), ShortAddress(0x5678))),
                 source: Some(Address::Short(PanId(0x4321), ShortAddress(0x9abc))),
                 seq: 0x01,
+                auxiliary_security_header: None,
             },
             content: FrameContent::Data,
             payload: &[0xde, 0xf0],
@@ -417,7 +430,7 @@ mod tests {
         let frame = Frame {
             header: Header {
                 frame_type: FrameType::Beacon,
-                security: Security::None,
+                security: false,
                 frame_pending: true,
                 ack_request: false,
                 pan_id_compress: false,
@@ -428,6 +441,7 @@ mod tests {
                 )),
                 source: Some(Address::Short(PanId(0x4321), ShortAddress(0x9abc))),
                 seq: 0xff,
+                auxiliary_security_header: None,
             },
             content: FrameContent::Beacon(beacon::Beacon {
                 superframe_spec: beacon::SuperframeSpecification {
@@ -462,7 +476,7 @@ mod tests {
         let frame = Frame {
             header: Header {
                 frame_type: FrameType::Acknowledgement,
-                security: Security::None,
+                security: false,
                 frame_pending: false,
                 ack_request: false,
                 pan_id_compress: true,
@@ -473,6 +487,7 @@ mod tests {
                 )),
                 source: Some(Address::Short(PanId(0x1234), ShortAddress(0x9abc))),
                 seq: 0xff,
+                auxiliary_security_header: None,
             },
             content: FrameContent::Acknowledgement,
             payload: &[],
@@ -496,7 +511,7 @@ mod tests {
         let frame = Frame {
             header: Header {
                 frame_type: FrameType::MacCommand,
-                security: Security::None,
+                security: false,
                 frame_pending: false,
                 ack_request: true,
                 pan_id_compress: false,
@@ -504,6 +519,7 @@ mod tests {
                 destination: None,
                 source: Some(Address::Short(PanId(0x1234), ShortAddress(0x9abc))),
                 seq: 0xff,
+                auxiliary_security_header: None,
             },
             content: FrameContent::Command(command::Command::DataRequest),
             payload: &[],
