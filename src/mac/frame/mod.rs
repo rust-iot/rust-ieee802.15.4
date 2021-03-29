@@ -29,7 +29,9 @@ pub use header::Header;
 pub use security::AuxiliarySecurityHeader;
 use security_control::SecurityLevel;
 
-use self::security::{KeyDescriptorLookup, SecurityContext, SecurityError};
+use self::security::{KeyDescriptorLookup, NonceGenerator, SecurityContext, SecurityError};
+
+use super::Address;
 
 /// An IEEE 802.15.4 MAC frame
 ///
@@ -176,107 +178,29 @@ pub struct Frame<'p> {
 
 /// A context that is used for serializing and deserializing frames, which also
 /// stores the frame counter
-pub struct FrameSerDesContext<'a, AEAD, KEYDESCLO>
+pub struct FrameSerDesContext<'a, AEAD, KEYDESCLO, NONCEGEN>
 where
     AEAD: NewAead + AeadInPlace,
-    AEAD::NonceSize: ArrayLength<U13>,
     KEYDESCLO: KeyDescriptorLookup,
+    NONCEGEN: NonceGenerator<AEAD::NonceSize>,
 {
     /// The footer mode to use when handling frames
     pub footer_mode: FooterMode,
     /// The security context for handling frames (if any)
-    pub security_ctx: Option<SecurityContext<'a, AEAD, KEYDESCLO>>,
+    pub security_ctx: Option<&'a SecurityContext<'a, AEAD, KEYDESCLO, NONCEGEN>>,
 }
 
-impl Frame<'_> {
-    fn secure_frame<AEAD, KEYDESCLO, NONCEGEN>(
-        &mut self,
-        context: &mut SecurityContext<AEAD, KEYDESCLO>,
-    ) -> Result<(), SecurityError>
-    where
-        AEAD: NewAead + AeadInPlace,
-        AEAD::NonceSize: ArrayLength<U13>,
-        KEYDESCLO: KeyDescriptorLookup,
-    {
-        let frame_counter = &mut context.frame_counter;
-        if self.header.security {
-            // Procedure 7.2.1
-            if let Some(aux_sec_header) = self.header.auxiliary_security_header {
-                let auth_len = match aux_sec_header.control.security_level {
-                    SecurityLevel::None => 0,
-                    SecurityLevel::MIC32 => 4,
-                    SecurityLevel::MIC64 => 8,
-                    SecurityLevel::MIC128 => 16,
-                    SecurityLevel::ENC => 0,
-                    SecurityLevel::ENCMIC32 => 4,
-                    SecurityLevel::ENCMIC64 => 8,
-                    SecurityLevel::ENCMIC128 => 16,
-                };
-                let aux_len = aux_sec_header.get_octet_size();
-
-                // If AuthLen plus AuxLen plus FCS is bigger than aMaxPHYPacketSize
-                // 7.2.1 b4
-                if auth_len + aux_len + 2 > 127 {
-                    return Err(SecurityError::FrameTooLong)?;
-                }
-
-                if aux_sec_header.control.security_level == SecurityLevel::None {}
-
-                if *frame_counter == 0xFFFFFFFF {
-                    return Err(SecurityError::CounterError)?;
-                }
-
-                if let Some(key) = context.key_provider.lookup_key(
-                    security::KeyAddressMode::DstAddrMode,
-                    aux_sec_header.key_identifier,
-                    self.header.destination,
-                ) {
-                    match aux_sec_header.control.security_level {
-                        SecurityLevel::None => {}
-                        SecurityLevel::MIC32 | SecurityLevel::MIC64 | SecurityLevel::MIC128 => {
-                            let aead_in_place = match AEAD::new_from_slice(&key.key) {
-                                Ok(key) => key,
-                                Err(_) => return Err(SecurityError::KeyFailure)?,
-                            };
-                            let nonce = GenericArray::default();
-                            let tag = aead_in_place.encrypt_in_place_detached(
-                                &nonce,
-                                &self.payload,
-                                &mut [],
-                            );
-                        }
-                        SecurityLevel::ENC => {}
-                        SecurityLevel::ENCMIC32 => {}
-                        SecurityLevel::ENCMIC64 => {}
-                        SecurityLevel::ENCMIC128 => {}
-                    }
-                } else {
-                    return Err(SecurityError::UnavailableKey)?;
-                }
-            } else {
-                panic!("Security on but AuxSecHeader absent")
-            }
-        } else {
-            // Not a fan of the fact that we can't pass some actually
-            // useful information to the layer above this, only byte::Result
-            if self.header.auxiliary_security_header.is_some() {
-                panic!("Security off but AuxSecHeader present")
-            }
-        }
-        Ok(())
-    }
-}
-
-impl<AEAD, KEYDESCLO> TryWrite<FrameSerDesContext<'_, AEAD, KEYDESCLO>> for Frame<'_>
+impl<AEAD, KEYDESCLO, NONCEGEN> TryWrite<FrameSerDesContext<'_, AEAD, KEYDESCLO, NONCEGEN>>
+    for Frame<'_>
 where
     AEAD: NewAead + AeadInPlace,
-    AEAD::NonceSize: ArrayLength<U13>,
     KEYDESCLO: KeyDescriptorLookup,
+    NONCEGEN: NonceGenerator<AEAD::NonceSize>,
 {
     fn try_write(
         self,
         bytes: &mut [u8],
-        context: FrameSerDesContext<AEAD, KEYDESCLO>,
+        context: FrameSerDesContext<AEAD, KEYDESCLO, NONCEGEN>,
     ) -> byte::Result<usize> {
         let mode = context.footer_mode;
         let offset = &mut 0;
@@ -284,7 +208,12 @@ where
         bytes.write(offset, self.header)?;
         bytes.write(offset, self.content)?;
 
-        bytes.write(offset, self.payload)?;
+        if let Some(ctx) = &mut context.security_ctx {
+            security::write_payload(self, ctx, offset, bytes);
+        } else {
+            return Err(EncodeError::InvalidSecContext)?;
+        }
+
         match mode {
             FooterMode::None => {}
             FooterMode::Explicit => bytes.write(offset, &self.footer[..])?,
@@ -454,6 +383,60 @@ impl From<DecodeError> for byte::Error {
             },
             DecodeError::AuxSecHeaderAbsent => byte::Error::BadInput {
                 err: "AuxSecHeaderAbsent",
+            },
+        }
+    }
+}
+
+/// Errors that can occur while securing or unsecuring a frame
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum EncodeError {
+    /// The provided security context cannot be used to secure the frame
+    InvalidSecContext,
+    /// The frame is too long after appending all security data
+    FrameTooLong,
+    /// The counter used for securing a frame is invalid (0xFFFFFFFF)
+    CounterError,
+    /// No key could be found for the provided context
+    UnavailableKey,
+    /// The key could not be used in an adequate manner
+    KeyFailure,
+    /// The frame to be secured has no source address specified. The source
+    /// address is necessary to calculate the nonce, in some cases
+    NoSourceAddress,
+    /// The security (CCM*) transformation could not be completed successfully
+    TransformationError,
+    /// Something went wrong while writing a frame's bytes to the destination
+    WriteError,
+    /// Something went wrong while writing a frame's bytes to their final destination
+    TagWriteError,
+}
+
+impl From<EncodeError> for byte::Error {
+    fn from(e: EncodeError) -> Self {
+        match e {
+            EncodeError::InvalidSecContext => byte::Error::BadInput {
+                err: "InvalidSecContext",
+            },
+            EncodeError::FrameTooLong => byte::Error::BadInput {
+                err: "FrameTooLong",
+            },
+            EncodeError::CounterError => byte::Error::BadInput {
+                err: "CounterError",
+            },
+            EncodeError::UnavailableKey => byte::Error::BadInput {
+                err: "UnavailableKey",
+            },
+            EncodeError::KeyFailure => byte::Error::BadInput { err: "KeyFailure" },
+            EncodeError::NoSourceAddress => byte::Error::BadInput {
+                err: "NoSourceAddress",
+            },
+            EncodeError::TransformationError => byte::Error::BadInput {
+                err: "TransformationError",
+            },
+            EncodeError::WriteError => byte::Error::BadInput { err: "WriteError" },
+            EncodeError::TagWriteError => byte::Error::BadInput {
+                err: "TagWriteError",
             },
         }
     }

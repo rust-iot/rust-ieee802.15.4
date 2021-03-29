@@ -79,6 +79,15 @@ impl SecurityLevel {
             _ => None,
         }
     }
+
+    pub fn get_mic_octet_count(&self) -> u8 {
+        match self {
+            SecurityLevel::None | SecurityLevel::ENC => 0,
+            SecurityLevel::MIC32 | SecurityLevel::ENCMIC32 => 4,
+            SecurityLevel::MIC64 | SecurityLevel::ENCMIC64 => 8,
+            SecurityLevel::MIC128 | SecurityLevel::ENCMIC128 => 16,
+        }
+    }
 }
 
 /// The key identifier mode

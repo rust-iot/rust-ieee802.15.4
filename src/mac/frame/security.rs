@@ -5,12 +5,18 @@
 
 use core::marker::PhantomData;
 
-use aead::{AeadInPlace, NewAead, consts::U13, generic_array::ArrayLength};
+use aead::{
+    generic_array::{ArrayLength, GenericArray},
+    AeadCore, AeadInPlace, NewAead, Tag,
+};
 use byte::{check_len, BytesExt, TryRead, LE};
 
-use crate::mac::Address;
+use crate::mac::{Address, FrameType};
 
-use super::security_control::{KeyIdentifierMode, SecurityControl};
+use super::{
+    security_control::{KeyIdentifierMode, SecurityControl, SecurityLevel},
+    EncodeError, Frame,
+};
 
 /// A struct describing the Auxiliary Security Header
 /// See: section 7.4 of the 802.15.4-2011 standard
@@ -112,37 +118,7 @@ pub struct KeyDescriptor {
     pub key: [u8; 16],
 }
 
-/// Errors that can occur while securing or unsecuring a frame
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum SecurityError {
-    /// The frame is too long after appending all security data
-    FrameTooLong,
-    /// The counter used for securing a frame is invalid (0xFFFFFFFF)
-    CounterError,
-    /// No key could be found for the provided context
-    UnavailableKey,
-    /// The key could not be used in an adequate manner
-    KeyFailure,
-}
-
-impl From<SecurityError> for byte::Error {
-    fn from(e: SecurityError) -> Self {
-        match e {
-            SecurityError::FrameTooLong => byte::Error::BadInput {
-                err: "FrameTooLong",
-            },
-            SecurityError::CounterError => byte::Error::BadInput {
-                err: "CounterError",
-            },
-            SecurityError::UnavailableKey => byte::Error::BadInput {
-                err: "UnavailableKey",
-            },
-            SecurityError::KeyFailure => byte::Error::BadInput { err: "KeyFailure" },
-        }
-    }
-}
-
-/// A trait that is used to create a KeyDescriptor from a KeyIdentifier and device address
+/// Used to create a KeyDescriptor from a KeyIdentifier and device address
 pub trait KeyDescriptorLookup {
     /// Look up a key from a key identifier and a device address
     ///
@@ -157,17 +133,30 @@ pub trait KeyDescriptorLookup {
     ) -> Option<KeyDescriptor>;
 }
 
+/// Generates a nonce from the 13-byte nonce that the standard provides.
+/// The generated nonce must be deterministic
+pub trait NonceGenerator<N>
+where
+    N: ArrayLength<u8>,
+{
+    /// Generate an N-length nonce from the 13 byte nonce generated using the method provided
+    /// by the 802.15.4 standard
+    fn generate_nonce(input_nonce: [u8; 13], destination: &mut GenericArray<u8, N>);
+}
 
 /// A context that used to keep track of cryptographic properties that
 /// are necessary for securing/unsecuring frames
 ///
 /// AEAD is the type that will provide an AEAD instance to be used for the
 /// encryption/decryption process
-pub struct SecurityContext<'a, AEAD, KEYDESCLO>
+///
+/// NONCEGEN is the type that will convert the nonce created using the 802.15.4 standard
+/// into a nonce of the size that can be accepted by the provided AEAD algorithm
+pub struct SecurityContext<'a, AEAD, KEYDESCLO, NONCEGEN>
 where
     AEAD: NewAead + AeadInPlace,
     KEYDESCLO: KeyDescriptorLookup,
-    AEAD::NonceSize: ArrayLength<U13>,
+    NONCEGEN: NonceGenerator<AEAD::NonceSize>,
 {
     /// The current frame counter
     pub frame_counter: u32,
@@ -175,5 +164,150 @@ where
     pub key_provider: &'a KEYDESCLO,
     /// This is phantom data as we use AEAD to actually instantiate an instance
     /// of AEAD, as opposed to actually using a provided AEAD instance somewhere
-    phanom_data: PhantomData<AEAD>,
+    ///
+    /// The NONCEGEN is phantom data as well
+    phanom_data: PhantomData<(AEAD, NONCEGEN)>,
+}
+
+/// Appends the payload of a [Frame] to the provided buffer, secured according to the security settings specified in
+/// the [Frame]'s [super::Header] and [AuxiliarySecurityHeader].
+///
+/// Offset is updated with the amount of bytes that is written
+///
+/// Currently only supports the securing of Data frames with extended addresses
+///
+/// # Panics
+/// If the security field in the frame's [super::Header] is true in the frame's header, but no [AuxiliarySecurityHeader] is present.
+///
+/// If security is false in the [super::Header] header, but an [AuxiliarySecurityHeader] is present.
+///
+/// If an unsupported frame type is used (i.e. anything that doesn't have an extended [Address] and the Data [FrameType])
+///
+/// If the provided security context is None, while security is enabled on the frame
+pub fn write_payload<'a, AEAD, KEYDESCLO, NONCEGEN>(
+    mut frame: Frame<'_>,
+    context: Option<&mut SecurityContext<AEAD, KEYDESCLO, NONCEGEN>>,
+    offset: &mut usize,
+    buffer: &mut [u8],
+) -> Result<(), EncodeError>
+where
+    AEAD: NewAead + AeadInPlace,
+    KEYDESCLO: KeyDescriptorLookup,
+    NONCEGEN: NonceGenerator<AEAD::NonceSize>,
+{
+    let header = frame.header;
+
+    if header.security {
+        let context = match context {
+            Some(context) => context,
+            None => panic!("Missing security context"),
+        };
+        let frame_counter = &mut context.frame_counter;
+        let source = match header.source {
+            Some(addr) => addr,
+            // Maybe this should panic instead
+            _ => return Err(EncodeError::NoSourceAddress),
+        };
+
+        match header.frame_type {
+            FrameType::Data => {}
+            _ => {
+                unimplemented!()
+            }
+        }
+        // Procedure 7.2.1
+        if let Some(aux_sec_header) = header.auxiliary_security_header {
+            let auth_len = aux_sec_header.control.security_level.get_mic_octet_count();
+            let aux_len = aux_sec_header.get_octet_size();
+
+            // If AuthLen plus AuxLen plus FCS is bigger than aMaxPHYPacketSize
+            // 7.2.1 b4
+            if auth_len + aux_len + 2 > 127 {
+                return Err(EncodeError::FrameTooLong);
+            }
+
+            if aux_sec_header.control.security_level == SecurityLevel::None {}
+
+            if *frame_counter == 0xFFFFFFFF {
+                return Err(EncodeError::CounterError);
+            }
+
+            if let Some(key) = context.key_provider.lookup_key(
+                KeyAddressMode::DstAddrMode,
+                aux_sec_header.key_identifier,
+                header.destination,
+            ) {
+                let mut input_nonce = [0u8; 13];
+
+                match source {
+                    Address::Short(_, _) => {
+                        unimplemented!();
+                    }
+                    Address::Extended(_, addr) => {
+                        for i in 0..7 {
+                            input_nonce[i] = (addr.0 >> (8 * i) & 0xFF) as u8;
+                        }
+                    }
+                };
+
+                if let Err(_) = buffer.write(offset, frame.payload) {
+                    return Err(EncodeError::WriteError);
+                }
+
+                let mut nonce = GenericArray::default();
+                NONCEGEN::generate_nonce(input_nonce, &mut nonce);
+
+                let aead_in_place = match AEAD::new_from_slice(&key.key) {
+                    Ok(key) => key,
+                    Err(_) => return Err(EncodeError::KeyFailure)?,
+                };
+
+                let tag = match aux_sec_header.control.security_level {
+                    SecurityLevel::None => None,
+                    SecurityLevel::MIC32 | SecurityLevel::MIC64 | SecurityLevel::MIC128 => {
+                        Some(aead_in_place.encrypt_in_place_detached(&nonce, buffer, &mut []))
+                    }
+                    SecurityLevel::ENC
+                    | SecurityLevel::ENCMIC32
+                    | SecurityLevel::ENCMIC64
+                    | SecurityLevel::ENCMIC128 => {
+                        Some(aead_in_place.encrypt_in_place_detached(&nonce, &mut [], buffer))
+                    }
+                };
+
+                // Encrypt the payload (excluding the FCR)
+                if let Some(Ok(tag)) = tag {
+                    let mic = get_truncated_mic::<AEAD, AEAD::TagSize>(&tag);
+                    if let Err(_) = buffer.write(offset, mic.as_slice()) {
+                        return Err(EncodeError::TagWriteError);
+                    }
+                } else {
+                    return Err(EncodeError::TransformationError);
+                }
+            } else {
+                return Err(EncodeError::UnavailableKey);
+            }
+        } else {
+            panic!("Security on but AuxSecHeader absent")
+        }
+    } else {
+        // Not a fan of the fact that we can't pass some actually
+        // useful information to the layer above this, only byte::Result
+        if header.auxiliary_security_header.is_some() {
+            panic!("Security off but AuxSecHeader present")
+        }
+    }
+    Ok(())
+}
+
+fn get_truncated_mic<AEAD, LEN>(input_tag: &Tag<AEAD>) -> GenericArray<u8, LEN>
+where
+    AEAD: AeadCore,
+    LEN: ArrayLength<u8>,
+{
+    let mut finished_mic = GenericArray::default();
+    let start = input_tag.len() - LEN::to_usize();
+    let end = LEN::to_usize();
+    finished_mic.copy_from_slice(&input_tag[start..end]);
+    finished_mic
 }
