@@ -7,9 +7,9 @@
 use byte::{check_len, BytesExt, TryRead, TryWrite, LE};
 use hash32_derive::Hash32;
 
-use super::auxiliary_security_header::*;
 use super::frame_control::*;
 pub use super::frame_control::{AddressMode, FrameType, FrameVersion};
+use super::security::*;
 use super::DecodeError;
 
 /// MAC frame header
@@ -69,7 +69,7 @@ pub struct Header {
     /// Source Address
     pub source: Option<Address>,
 
-    /// Auxiliary security header
+    /// Auxiliary security header, only Some if [`Header.security`] is true
     pub auxiliary_security_header: Option<AuxiliarySecurityHeader>,
 }
 

@@ -14,14 +14,22 @@
 use crate::mac::beacon::Beacon;
 use crate::mac::command::Command;
 
-pub mod auxiliary_security_header;
 mod frame_control;
 pub mod header;
+pub mod security;
 mod security_control;
-pub use auxiliary_security_header::AuxiliarySecurityHeader;
+use aead::{
+    consts::U13,
+    generic_array::{ArrayLength, GenericArray},
+    AeadCore, AeadInPlace, NewAead,
+};
 use byte::{ctx::Bytes, BytesExt, TryRead, TryWrite, LE};
 use header::FrameType;
 pub use header::Header;
+pub use security::AuxiliarySecurityHeader;
+use security_control::SecurityLevel;
+
+use self::security::{KeyDescriptorLookup, SecurityContext, SecurityError};
 
 /// An IEEE 802.15.4 MAC frame
 ///
@@ -166,11 +174,116 @@ pub struct Frame<'p> {
     pub footer: [u8; 2],
 }
 
-impl TryWrite<FooterMode> for Frame<'_> {
-    fn try_write(self, bytes: &mut [u8], mode: FooterMode) -> byte::Result<usize> {
+/// A context that is used for serializing and deserializing frames, which also
+/// stores the frame counter
+pub struct FrameSerDesContext<'a, AEAD, KEYDESCLO>
+where
+    AEAD: NewAead + AeadInPlace,
+    AEAD::NonceSize: ArrayLength<U13>,
+    KEYDESCLO: KeyDescriptorLookup,
+{
+    /// The footer mode to use when handling frames
+    pub footer_mode: FooterMode,
+    /// The security context for handling frames (if any)
+    pub security_ctx: Option<SecurityContext<'a, AEAD, KEYDESCLO>>,
+}
+
+impl Frame<'_> {
+    fn secure_frame<AEAD, KEYDESCLO, NONCEGEN>(
+        &mut self,
+        context: &mut SecurityContext<AEAD, KEYDESCLO>,
+    ) -> Result<(), SecurityError>
+    where
+        AEAD: NewAead + AeadInPlace,
+        AEAD::NonceSize: ArrayLength<U13>,
+        KEYDESCLO: KeyDescriptorLookup,
+    {
+        let frame_counter = &mut context.frame_counter;
+        if self.header.security {
+            // Procedure 7.2.1
+            if let Some(aux_sec_header) = self.header.auxiliary_security_header {
+                let auth_len = match aux_sec_header.control.security_level {
+                    SecurityLevel::None => 0,
+                    SecurityLevel::MIC32 => 4,
+                    SecurityLevel::MIC64 => 8,
+                    SecurityLevel::MIC128 => 16,
+                    SecurityLevel::ENC => 0,
+                    SecurityLevel::ENCMIC32 => 4,
+                    SecurityLevel::ENCMIC64 => 8,
+                    SecurityLevel::ENCMIC128 => 16,
+                };
+                let aux_len = aux_sec_header.get_octet_size();
+
+                // If AuthLen plus AuxLen plus FCS is bigger than aMaxPHYPacketSize
+                // 7.2.1 b4
+                if auth_len + aux_len + 2 > 127 {
+                    return Err(SecurityError::FrameTooLong)?;
+                }
+
+                if aux_sec_header.control.security_level == SecurityLevel::None {}
+
+                if *frame_counter == 0xFFFFFFFF {
+                    return Err(SecurityError::CounterError)?;
+                }
+
+                if let Some(key) = context.key_provider.lookup_key(
+                    security::KeyAddressMode::DstAddrMode,
+                    aux_sec_header.key_identifier,
+                    self.header.destination,
+                ) {
+                    match aux_sec_header.control.security_level {
+                        SecurityLevel::None => {}
+                        SecurityLevel::MIC32 | SecurityLevel::MIC64 | SecurityLevel::MIC128 => {
+                            let aead_in_place = match AEAD::new_from_slice(&key.key) {
+                                Ok(key) => key,
+                                Err(_) => return Err(SecurityError::KeyFailure)?,
+                            };
+                            let nonce = GenericArray::default();
+                            let tag = aead_in_place.encrypt_in_place_detached(
+                                &nonce,
+                                &self.payload,
+                                &mut [],
+                            );
+                        }
+                        SecurityLevel::ENC => {}
+                        SecurityLevel::ENCMIC32 => {}
+                        SecurityLevel::ENCMIC64 => {}
+                        SecurityLevel::ENCMIC128 => {}
+                    }
+                } else {
+                    return Err(SecurityError::UnavailableKey)?;
+                }
+            } else {
+                panic!("Security on but AuxSecHeader absent")
+            }
+        } else {
+            // Not a fan of the fact that we can't pass some actually
+            // useful information to the layer above this, only byte::Result
+            if self.header.auxiliary_security_header.is_some() {
+                panic!("Security off but AuxSecHeader present")
+            }
+        }
+        Ok(())
+    }
+}
+
+impl<AEAD, KEYDESCLO> TryWrite<FrameSerDesContext<'_, AEAD, KEYDESCLO>> for Frame<'_>
+where
+    AEAD: NewAead + AeadInPlace,
+    AEAD::NonceSize: ArrayLength<U13>,
+    KEYDESCLO: KeyDescriptorLookup,
+{
+    fn try_write(
+        self,
+        bytes: &mut [u8],
+        context: FrameSerDesContext<AEAD, KEYDESCLO>,
+    ) -> byte::Result<usize> {
+        let mode = context.footer_mode;
         let offset = &mut 0;
+
         bytes.write(offset, self.header)?;
         bytes.write(offset, self.content)?;
+
         bytes.write(offset, self.payload)?;
         match mode {
             FooterMode::None => {}
@@ -180,8 +293,13 @@ impl TryWrite<FooterMode> for Frame<'_> {
     }
 }
 
-impl<'a> TryRead<'a, FooterMode> for Frame<'a> {
-    fn try_read(bytes: &'a [u8], mode: FooterMode) -> byte::Result<(Self, usize)> {
+impl<'a, AEAD> TryRead<'a, (FooterMode, AEAD)> for Frame<'a>
+where
+    AEAD: AeadInPlace,
+{
+    fn try_read(bytes: &'a [u8], context: (FooterMode, AEAD)) -> byte::Result<(Self, usize)> {
+        let (mode, _aead) = context;
+
         let offset = &mut 0;
         let header = bytes.read(offset)?;
         let content = bytes.read_with(offset, &header)?;
@@ -195,6 +313,7 @@ impl<'a> TryRead<'a, FooterMode> for Frame<'a> {
                 bytes.read_with(offset, LE)?,
             ),
         };
+
         Ok((
             Frame {
                 header: header,
@@ -295,6 +414,12 @@ pub enum DecodeError {
     /// The auxiliary security header's key identifier mode is invalid
     InvalidKeyIdentifierMode(u8),
 
+    /// Security is disabled, but an Auxiliary Security Header is set
+    SecurityNotEnabled,
+
+    /// Security is enabled, but no Auxiliary Security Header is present
+    AuxSecHeaderAbsent,
+
     /// The data stream contains an invalid value
     InvalidValue,
 }
@@ -323,6 +448,12 @@ impl From<DecodeError> for byte::Error {
             },
             DecodeError::InvalidKeyIdentifierMode(_) => byte::Error::BadInput {
                 err: "InvalidKeyIdentifierMode",
+            },
+            DecodeError::SecurityNotEnabled => byte::Error::BadInput {
+                err: "SecurityNotEnabled",
+            },
+            DecodeError::AuxSecHeaderAbsent => byte::Error::BadInput {
+                err: "AuxSecHeaderAbsent",
             },
         }
     }
