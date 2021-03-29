@@ -3,7 +3,6 @@
 pub mod beacon;
 pub mod command;
 pub mod frame;
-pub mod security;
 
 pub use frame::header::{
     Address, AddressMode, ExtendedAddress, FrameType, FrameVersion, Header, PanId, ShortAddress,

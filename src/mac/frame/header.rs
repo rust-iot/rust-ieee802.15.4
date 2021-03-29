@@ -7,10 +7,10 @@
 use byte::{check_len, BytesExt, TryRead, TryWrite, LE};
 use hash32_derive::Hash32;
 
+use super::auxiliary_security_header::*;
 use super::frame_control::*;
 pub use super::frame_control::{AddressMode, FrameType, FrameVersion};
 use super::DecodeError;
-use crate::mac::security::auxiliary_security_header::AuxiliarySecurityHeader;
 
 /// MAC frame header
 ///

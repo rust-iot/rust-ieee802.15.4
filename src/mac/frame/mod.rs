@@ -14,8 +14,11 @@
 use crate::mac::beacon::Beacon;
 use crate::mac::command::Command;
 
+pub mod auxiliary_security_header;
 mod frame_control;
 pub mod header;
+mod security_control;
+pub use auxiliary_security_header::AuxiliarySecurityHeader;
 use byte::{ctx::Bytes, BytesExt, TryRead, TryWrite, LE};
 use header::FrameType;
 pub use header::Header;
