@@ -15,7 +15,7 @@ use crate::mac::{Address, FrameType};
 
 use super::{
     security_control::{KeyIdentifierMode, SecurityControl, SecurityLevel},
-    EncodeError, Frame,
+    Frame,
 };
 
 /// A struct describing the Auxiliary Security Header
@@ -170,26 +170,26 @@ where
 }
 
 /// Appends the payload of a [Frame] to the provided buffer, secured according to the security settings specified in
-/// the [Frame]'s [super::Header] and [AuxiliarySecurityHeader].
+/// the [Frame]'s [`super::Header`] and [AuxiliarySecurityHeader].
 ///
 /// Offset is updated with the amount of bytes that is written
 ///
 /// Currently only supports the securing of Data frames with extended addresses
 ///
 /// # Panics
-/// If the security field in the frame's [super::Header] is true in the frame's header, but no [AuxiliarySecurityHeader] is present.
+/// If the security field in the frame's [`super::Header`] is true in the frame's header, but no [AuxiliarySecurityHeader] is present.
 ///
-/// If security is false in the [super::Header] header, but an [AuxiliarySecurityHeader] is present.
+/// If security is false in the [`super::Header`] header, but an [AuxiliarySecurityHeader] is present.
 ///
 /// If an unsupported frame type is used (i.e. anything that doesn't have an extended [Address] and the Data [FrameType])
 ///
 /// If the provided security context is None, while security is enabled on the frame
 pub fn write_payload<'a, AEAD, KEYDESCLO, NONCEGEN>(
-    mut frame: Frame<'_>,
+    frame: Frame<'_>,
     context: Option<&mut SecurityContext<AEAD, KEYDESCLO, NONCEGEN>>,
     offset: &mut usize,
     buffer: &mut [u8],
-) -> Result<(), EncodeError>
+) -> Result<(), SecurityError>
 where
     AEAD: NewAead + AeadInPlace,
     KEYDESCLO: KeyDescriptorLookup,
@@ -206,7 +206,7 @@ where
         let source = match header.source {
             Some(addr) => addr,
             // Maybe this should panic instead
-            _ => return Err(EncodeError::NoSourceAddress),
+            _ => return Err(SecurityError::NoSourceAddress),
         };
 
         match header.frame_type {
@@ -223,13 +223,13 @@ where
             // If AuthLen plus AuxLen plus FCS is bigger than aMaxPHYPacketSize
             // 7.2.1 b4
             if auth_len + aux_len + 2 > 127 {
-                return Err(EncodeError::FrameTooLong);
+                return Err(SecurityError::FrameTooLong);
             }
 
             if aux_sec_header.control.security_level == SecurityLevel::None {}
 
             if *frame_counter == 0xFFFFFFFF {
-                return Err(EncodeError::CounterError);
+                return Err(SecurityError::CounterError);
             }
 
             if let Some(key) = context.key_provider.lookup_key(
@@ -251,7 +251,7 @@ where
                 };
 
                 if let Err(_) = buffer.write(offset, frame.payload) {
-                    return Err(EncodeError::WriteError);
+                    return Err(SecurityError::WriteError);
                 }
 
                 let mut nonce = GenericArray::default();
@@ -259,7 +259,7 @@ where
 
                 let aead_in_place = match AEAD::new_from_slice(&key.key) {
                     Ok(key) => key,
-                    Err(_) => return Err(EncodeError::KeyFailure)?,
+                    Err(_) => return Err(SecurityError::KeyFailure)?,
                 };
 
                 let tag = match aux_sec_header.control.security_level {
@@ -279,13 +279,14 @@ where
                 if let Some(Ok(tag)) = tag {
                     let mic = get_truncated_mic::<AEAD, AEAD::TagSize>(&tag);
                     if let Err(_) = buffer.write(offset, mic.as_slice()) {
-                        return Err(EncodeError::TagWriteError);
+                        return Err(SecurityError::TagWriteError);
                     }
+                    return Ok(());
                 } else {
-                    return Err(EncodeError::TransformationError);
+                    return Err(SecurityError::TransformationError);
                 }
             } else {
-                return Err(EncodeError::UnavailableKey);
+                return Err(SecurityError::UnavailableKey);
             }
         } else {
             panic!("Security on but AuxSecHeader absent")
@@ -295,9 +296,10 @@ where
         // useful information to the layer above this, only byte::Result
         if header.auxiliary_security_header.is_some() {
             panic!("Security off but AuxSecHeader present")
+        } else {
+            return Err(SecurityError::SecurityNotEnabled);
         }
     }
-    Ok(())
 }
 
 fn get_truncated_mic<AEAD, LEN>(input_tag: &Tag<AEAD>) -> GenericArray<u8, LEN>
@@ -310,4 +312,62 @@ where
     let end = LEN::to_usize();
     finished_mic.copy_from_slice(&input_tag[start..end]);
     finished_mic
+}
+
+/// Errors that can occur while performing security operations on frames
+pub enum SecurityError {
+    /// Security is not enabled for this frame
+    SecurityNotEnabled,
+    /// The provided security context cannot be used to secure the frame
+    InvalidSecContext,
+    /// The frame is too long after appending all security data
+    FrameTooLong,
+    /// The counter used for securing a frame is invalid (0xFFFFFFFF)
+    CounterError,
+    /// No key could be found for the provided context
+    UnavailableKey,
+    /// The key could not be used in an adequate manner
+    KeyFailure,
+    /// The frame to be secured has no source address specified. The source
+    /// address is necessary to calculate the nonce, in some cases
+    NoSourceAddress,
+    /// The security (CCM*) transformation could not be completed successfully
+    TransformationError,
+    /// Something went wrong while writing the frame's payload bytes to the buffer
+    WriteError,
+    /// Something went wrong while writing a frame's tag to the buffer
+    TagWriteError,
+}
+
+impl From<SecurityError> for byte::Error {
+    fn from(e: SecurityError) -> Self {
+        match e {
+            SecurityError::InvalidSecContext => byte::Error::BadInput {
+                err: "InvalidSecContext",
+            },
+            SecurityError::FrameTooLong => byte::Error::BadInput {
+                err: "FrameTooLong",
+            },
+            SecurityError::CounterError => byte::Error::BadInput {
+                err: "CounterError",
+            },
+            SecurityError::UnavailableKey => byte::Error::BadInput {
+                err: "UnavailableKey",
+            },
+            SecurityError::KeyFailure => byte::Error::BadInput { err: "KeyFailure" },
+            SecurityError::NoSourceAddress => byte::Error::BadInput {
+                err: "NoSourceAddress",
+            },
+            SecurityError::TransformationError => byte::Error::BadInput {
+                err: "TransformationError",
+            },
+            SecurityError::TagWriteError => byte::Error::BadInput {
+                err: "TagWriteError",
+            },
+            SecurityError::SecurityNotEnabled => byte::Error::BadInput {
+                err: "SecurityNotEnabled",
+            },
+            SecurityError::WriteError => byte::Error::BadInput { err: "WriteError" },
+        }
+    }
 }

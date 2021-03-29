@@ -23,7 +23,7 @@ pub struct Header {
     /// Frame Type
     pub frame_type: FrameType,
 
-    /// Whether an Auxiliary Security header is present
+    /// Whether the frame is or should be secured
     pub security: bool,
 
     /// Frame Pending

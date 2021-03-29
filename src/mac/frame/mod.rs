@@ -187,7 +187,7 @@ where
     /// The footer mode to use when handling frames
     pub footer_mode: FooterMode,
     /// The security context for handling frames (if any)
-    pub security_ctx: Option<&'a SecurityContext<'a, AEAD, KEYDESCLO, NONCEGEN>>,
+    pub security_ctx: Option<&'a mut SecurityContext<'a, AEAD, KEYDESCLO, NONCEGEN>>,
 }
 
 impl<AEAD, KEYDESCLO, NONCEGEN> TryWrite<FrameSerDesContext<'_, AEAD, KEYDESCLO, NONCEGEN>>
@@ -208,10 +208,15 @@ where
         bytes.write(offset, self.header)?;
         bytes.write(offset, self.content)?;
 
-        if let Some(ctx) = &mut context.security_ctx {
-            security::write_payload(self, ctx, offset, bytes);
-        } else {
-            return Err(EncodeError::InvalidSecContext)?;
+        let write_secured = security::write_payload(self, context.security_ctx, offset, bytes);
+
+        if let Err(e) = write_secured {
+            match e {
+                SecurityError::SecurityNotEnabled => {
+                    bytes.write(offset, self.payload)?;
+                }
+                _ => return Err(e)?,
+            }
         }
 
         match mode {
@@ -391,53 +396,14 @@ impl From<DecodeError> for byte::Error {
 /// Errors that can occur while securing or unsecuring a frame
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum EncodeError {
-    /// The provided security context cannot be used to secure the frame
-    InvalidSecContext,
-    /// The frame is too long after appending all security data
-    FrameTooLong,
-    /// The counter used for securing a frame is invalid (0xFFFFFFFF)
-    CounterError,
-    /// No key could be found for the provided context
-    UnavailableKey,
-    /// The key could not be used in an adequate manner
-    KeyFailure,
-    /// The frame to be secured has no source address specified. The source
-    /// address is necessary to calculate the nonce, in some cases
-    NoSourceAddress,
-    /// The security (CCM*) transformation could not be completed successfully
-    TransformationError,
     /// Something went wrong while writing a frame's bytes to the destination
     WriteError,
-    /// Something went wrong while writing a frame's bytes to their final destination
-    TagWriteError,
 }
 
 impl From<EncodeError> for byte::Error {
     fn from(e: EncodeError) -> Self {
         match e {
-            EncodeError::InvalidSecContext => byte::Error::BadInput {
-                err: "InvalidSecContext",
-            },
-            EncodeError::FrameTooLong => byte::Error::BadInput {
-                err: "FrameTooLong",
-            },
-            EncodeError::CounterError => byte::Error::BadInput {
-                err: "CounterError",
-            },
-            EncodeError::UnavailableKey => byte::Error::BadInput {
-                err: "UnavailableKey",
-            },
-            EncodeError::KeyFailure => byte::Error::BadInput { err: "KeyFailure" },
-            EncodeError::NoSourceAddress => byte::Error::BadInput {
-                err: "NoSourceAddress",
-            },
-            EncodeError::TransformationError => byte::Error::BadInput {
-                err: "TransformationError",
-            },
             EncodeError::WriteError => byte::Error::BadInput { err: "WriteError" },
-            EncodeError::TagWriteError => byte::Error::BadInput {
-                err: "TagWriteError",
-            },
         }
     }
 }
