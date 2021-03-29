@@ -18,20 +18,13 @@ mod frame_control;
 pub mod header;
 pub mod security;
 mod security_control;
-use aead::{
-    consts::U13,
-    generic_array::{ArrayLength, GenericArray},
-    AeadCore, AeadInPlace, NewAead,
-};
+use aead::{AeadInPlace, NewAead};
 use byte::{ctx::Bytes, BytesExt, TryRead, TryWrite, LE};
 use header::FrameType;
 pub use header::Header;
 pub use security::AuxiliarySecurityHeader;
-use security_control::SecurityLevel;
 
 use self::security::{KeyDescriptorLookup, NonceGenerator, SecurityContext, SecurityError};
-
-use super::Address;
 
 /// An IEEE 802.15.4 MAC frame
 ///
@@ -50,12 +43,12 @@ use super::Address;
 /// ``` rust
 /// use ieee802154::mac::{
 ///     Frame,
-///       Address,
-///       ShortAddress,
-///       FrameType,
-///       FooterMode,
-///       PanId,
-///       Security
+///     Address,
+///     ShortAddress,
+///     FrameType,
+///     FooterMode,
+///     PanId,
+///     frame::security::no_security
 /// };
 /// use byte::BytesExt;
 ///
@@ -71,7 +64,7 @@ use super::Address;
 ///     0x12, 0x34,             // payload
 /// ];
 ///
-/// let frame: Frame = bytes.read_with(&mut 0, FooterMode::Explicit).unwrap();
+/// let frame: Frame = bytes.read_with(&mut 0, no_security(FooterMode::Explicit)).unwrap();
 /// let header = frame.header;
 ///
 /// assert_eq!(frame.header.seq,       0x00);
@@ -113,7 +106,7 @@ use super::Address;
 ///   FrameVersion,
 ///   Header,
 ///   PanId,
-///   Security,
+///   frame::security::no_security,
 /// };
 /// use byte::BytesExt;
 ///
@@ -129,6 +122,7 @@ use super::Address;
 ///         seq:             0x00,
 ///         destination: Some(Address::Short(PanId(0x1234), ShortAddress(0x5678))),
 ///         source:      Some(Address::Short(PanId(0x1234), ShortAddress(0x9abc))),
+///         auxiliary_security_header: None,
 ///     },
 ///     content: FrameContent::Data,
 ///     payload: &[0xde, 0xf0],
@@ -139,7 +133,7 @@ use super::Address;
 /// let mut bytes = [0u8; 32];
 /// let mut len = 0usize;
 ///
-/// bytes.write_with(&mut len, frame, FooterMode::Explicit).unwrap();
+/// bytes.write_with(&mut len, frame, no_security(FooterMode::Explicit)).unwrap();
 ///
 /// let expected_bytes = [
 ///     0x01, 0x98,             // frame control
@@ -227,13 +221,18 @@ where
     }
 }
 
-impl<'a, AEAD> TryRead<'a, (FooterMode, AEAD)> for Frame<'a>
+impl<'a, AEAD, KEYDESCLO, NONCEGEN> TryRead<'a, FrameSerDesContext<'_, AEAD, KEYDESCLO, NONCEGEN>>
+    for Frame<'a>
 where
-    AEAD: AeadInPlace,
+    AEAD: NewAead + AeadInPlace,
+    KEYDESCLO: KeyDescriptorLookup,
+    NONCEGEN: NonceGenerator<AEAD::NonceSize>,
 {
-    fn try_read(bytes: &'a [u8], context: (FooterMode, AEAD)) -> byte::Result<(Self, usize)> {
-        let (mode, _aead) = context;
-
+    fn try_read(
+        bytes: &'a [u8],
+        context: FrameSerDesContext<AEAD, KEYDESCLO, NONCEGEN>,
+    ) -> byte::Result<(Self, usize)> {
+        let mode = context.footer_mode;
         let offset = &mut 0;
         let header = bytes.read(offset)?;
         let content = bytes.read_with(offset, &header)?;
@@ -413,6 +412,7 @@ mod tests {
     use super::*;
     use crate::mac::beacon;
     use crate::mac::command;
+    use crate::mac::frame::security::no_security;
     use crate::mac::{Address, ExtendedAddress, FrameVersion, PanId, ShortAddress};
 
     #[test]
@@ -420,7 +420,10 @@ mod tests {
         let data = [
             0x41, 0x88, 0x91, 0x8f, 0x20, 0xff, 0xff, 0x33, 0x44, 0x00, 0x00,
         ];
-        let frame: Frame = data.read(&mut 0).unwrap();
+
+        let frame: Frame = data
+            .read_with(&mut 0, no_security(FooterMode::None))
+            .unwrap();
         let hdr = frame.header;
         assert_eq!(hdr.frame_type, FrameType::Data);
         assert_eq!(hdr.security, false);
@@ -444,7 +447,7 @@ mod tests {
         let data = [
             0x41, 0x80, 0x91, 0x8f, 0x20, 0xff, 0xff, 0x33, 0x44, 0x00, 0x00,
         ];
-        let frame = data.read::<Frame>(&mut 0);
+        let frame = data.read_with::<Frame>(&mut 0, no_security(FooterMode::None));
         assert!(frame.is_err());
         if let Err(e) = frame {
             assert_eq!(e, DecodeError::InvalidAddressMode(0).into())
@@ -457,7 +460,9 @@ mod tests {
             0x21, 0xc8, 0x8b, 0xff, 0xff, 0x02, 0x00, 0x23, 0x00, 0x60, 0xe2, 0x16, 0x21, 0x1c,
             0x4a, 0xc2, 0xae, 0xaa, 0xbb, 0xcc,
         ];
-        let frame: Frame = data.read(&mut 0).unwrap();
+        let frame: Frame = data
+            .read_with(&mut 0, no_security(FooterMode::None))
+            .unwrap();
         let hdr = frame.header;
         assert_eq!(hdr.frame_type, FrameType::Data);
         assert_eq!(hdr.security, false);
@@ -500,7 +505,8 @@ mod tests {
         };
         let mut buf = [0u8; 32];
         let mut len = 0usize;
-        buf.write(&mut len, frame).unwrap();
+        buf.write_with(&mut len, frame, no_security(FooterMode::None))
+            .unwrap();
         assert_eq!(len, 13);
         assert_eq!(
             buf[..len],
@@ -543,7 +549,8 @@ mod tests {
         };
         let mut buf = [0u8; 32];
         let mut len = 0usize;
-        buf.write(&mut len, frame).unwrap();
+        buf.write_with(&mut len, frame, no_security(FooterMode::None))
+            .unwrap();
         assert_eq!(len, 23);
         assert_eq!(
             buf[..len],
@@ -578,7 +585,8 @@ mod tests {
         };
         let mut buf = [0u8; 32];
         let mut len = 0usize;
-        buf.write(&mut len, frame).unwrap();
+        buf.write_with(&mut len, frame, no_security(FooterMode::None))
+            .unwrap();
         assert_eq!(len, 15);
         assert_eq!(
             buf[..len],
@@ -610,7 +618,8 @@ mod tests {
         };
         let mut buf = [0u8; 32];
         let mut len = 0usize;
-        buf.write(&mut len, frame).unwrap();
+        buf.write_with(&mut len, frame, no_security(FooterMode::None))
+            .unwrap();
         assert_eq!(len, 8);
         assert_eq!(buf[..len], [0x23, 0xa0, 0xff, 0x34, 0x12, 0xbc, 0x9a, 0x04]);
     }
