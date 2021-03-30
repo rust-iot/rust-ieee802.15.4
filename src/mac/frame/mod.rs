@@ -17,15 +17,14 @@ use crate::mac::command::Command;
 mod frame_control;
 pub mod header;
 pub mod security;
-use aead::{AeadInPlace, NewAead};
 use byte::{ctx::Bytes, BytesExt, TryRead, TryWrite, LE};
+use ccm::aead::generic_array::{typenum::consts::U16, ArrayLength};
+use cipher::BlockCipher;
 use header::FrameType;
 pub use header::Header;
 pub use security::AuxiliarySecurityHeader;
 
-use self::security::{
-    default::Unimplemented, KeyLookup, NonceGenerator, SecurityContext, SecurityError,
-};
+use self::security::{default::*, KeyLookup, SecurityContext, SecurityError};
 
 /// An IEEE 802.15.4 MAC frame
 ///
@@ -173,29 +172,29 @@ pub struct Frame<'p> {
 
 /// A context that is used for serializing and deserializing frames, which also
 /// stores the frame counter
-pub struct FrameSerDesContext<'a, AEAD, KEYDESCLO, NONCEGEN>
+pub struct FrameSerDesContext<'a, AEADBLKCIPH, KEYDESCLO, KEYSIZE>
 where
-    AEAD: NewAead + AeadInPlace,
-    KEYDESCLO: KeyLookup<AEAD::KeySize>,
-    NONCEGEN: NonceGenerator<AEAD::NonceSize>,
+    KEYSIZE: ArrayLength<u8>,
+    AEADBLKCIPH: BlockCipher<BlockSize = U16>,
+    KEYDESCLO: KeyLookup<KEYSIZE>,
 {
     /// The footer mode to use when handling frames
     footer_mode: FooterMode,
     /// The security context for handling frames (if any)
-    security_ctx: Option<&'a mut SecurityContext<'a, AEAD, KEYDESCLO, NONCEGEN>>,
+    security_ctx: Option<&'a mut SecurityContext<'a, AEADBLKCIPH, KEYDESCLO, KEYSIZE>>,
 }
 
-impl<'a, AEAD, KEYDESCLO, NONCEGEN> FrameSerDesContext<'a, AEAD, KEYDESCLO, NONCEGEN>
+impl<'a, AEADBLKCIPH, KEYDESCLO, KEYSIZE> FrameSerDesContext<'a, AEADBLKCIPH, KEYDESCLO, KEYSIZE>
 where
-    AEAD: NewAead + AeadInPlace,
-    KEYDESCLO: KeyLookup<AEAD::KeySize>,
-    NONCEGEN: NonceGenerator<AEAD::NonceSize>,
+    KEYSIZE: ArrayLength<u8>,
+    AEADBLKCIPH: BlockCipher<BlockSize = U16>,
+    KEYDESCLO: KeyLookup<KEYSIZE>,
 {
     /// Create a new frame serialization/deserialization context with the specified footer mode
     /// and security context
     pub fn new(
         mode: FooterMode,
-        security_ctx: &'a mut SecurityContext<'a, AEAD, KEYDESCLO, NONCEGEN>,
+        security_ctx: &'a mut SecurityContext<'a, AEADBLKCIPH, KEYDESCLO, KEYSIZE>,
     ) -> Self {
         FrameSerDesContext {
             footer_mode: mode,
@@ -204,7 +203,7 @@ where
     }
 }
 
-impl FrameSerDesContext<'_, Unimplemented, Unimplemented, Unimplemented> {
+impl FrameSerDesContext<'_, UnimplementedAead32, UnimplementedAead64, UnimplementedAead128> {
     /// Create a new frame serialization/deserialization context with the specified footer mode,
     /// that does not facilitate any security functionality
     pub fn no_security(mode: FooterMode) -> Self {
@@ -215,17 +214,17 @@ impl FrameSerDesContext<'_, Unimplemented, Unimplemented, Unimplemented> {
     }
 }
 
-impl<AEAD, KEYDESCLO, NONCEGEN> TryWrite<FrameSerDesContext<'_, AEAD, KEYDESCLO, NONCEGEN>>
-    for Frame<'_>
+impl<AEADBLKCIPH, KEYDESCLO, KEYSIZE>
+    TryWrite<FrameSerDesContext<'_, AEADBLKCIPH, KEYDESCLO, KEYSIZE>> for Frame<'_>
 where
-    AEAD: NewAead + AeadInPlace,
-    KEYDESCLO: KeyLookup<AEAD::KeySize>,
-    NONCEGEN: NonceGenerator<AEAD::NonceSize>,
+    KEYSIZE: ArrayLength<u8>,
+    AEADBLKCIPH: BlockCipher<BlockSize = U16>,
+    KEYDESCLO: KeyLookup<KEYSIZE>,
 {
     fn try_write(
         self,
         bytes: &mut [u8],
-        context: FrameSerDesContext<AEAD, KEYDESCLO, NONCEGEN>,
+        context: FrameSerDesContext<AEADBLKCIPH, KEYDESCLO, KEYSIZE>,
     ) -> byte::Result<usize> {
         let mode = context.footer_mode;
         let offset = &mut 0;
@@ -262,16 +261,16 @@ where
     }
 }
 
-impl<'a, AEAD, KEYDESCLO, NONCEGEN> TryRead<'a, FrameSerDesContext<'_, AEAD, KEYDESCLO, NONCEGEN>>
-    for Frame<'a>
+impl<'a, AEADBLKCIPH, KEYDESCLO, KEYSIZE>
+    TryRead<'a, FrameSerDesContext<'_, AEADBLKCIPH, KEYDESCLO, KEYSIZE>> for Frame<'a>
 where
-    AEAD: NewAead + AeadInPlace,
-    KEYDESCLO: KeyLookup<AEAD::KeySize>,
-    NONCEGEN: NonceGenerator<AEAD::NonceSize>,
+    KEYSIZE: ArrayLength<u8>,
+    AEADBLKCIPH: BlockCipher<BlockSize = U16>,
+    KEYDESCLO: KeyLookup<KEYSIZE>,
 {
     fn try_read(
         bytes: &'a [u8],
-        context: FrameSerDesContext<AEAD, KEYDESCLO, NONCEGEN>,
+        context: FrameSerDesContext<AEADBLKCIPH, KEYDESCLO, KEYSIZE>,
     ) -> byte::Result<(Self, usize)> {
         let mode = context.footer_mode;
         let offset = &mut 0;

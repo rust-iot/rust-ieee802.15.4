@@ -5,15 +5,22 @@
 
 use core::marker::PhantomData;
 
-use aead::{
-    generic_array::{ArrayLength, GenericArray},
-    AeadInPlace, NewAead, Tag,
-};
 use byte::{BytesExt, TryRead, TryWrite, LE};
+use ccm::{
+    aead::{
+        generic_array::{
+            typenum::consts::{U13, U16, U4, U8},
+            ArrayLength, GenericArray,
+        },
+        AeadInPlace, NewAead, Tag,
+    },
+    Ccm,
+};
+use cipher::BlockCipher;
 
-use crate::mac::{Address, FrameType};
+use crate::mac::{Address, FrameType, FrameVersion};
 
-use super::Frame;
+use super::{Frame, Header};
 
 pub(crate) mod default;
 mod security_control;
@@ -51,13 +58,6 @@ impl AuxiliarySecurityHeader {
             };
         length
     }
-
-    /*
-                    KeyIdentifierMode::None => 0,
-                KeyIdentifierMode::KeyIndex => 1,
-                KeyIdentifierMode::KeySource4 => 5,
-                KeyIdentifierMode::KeySource8 => 9,
-    */
 }
 
 impl TryRead<'_> for AuxiliarySecurityHeader {
@@ -161,18 +161,28 @@ pub enum KeySource {
     Long(u64),
 }
 
-/// The addressing mode to use during key descriptor lookups
-pub enum KeyAddressMode {
+/// The addressing mode to use during descriptor lookups
+pub enum AddressingMode {
     /// Destination addressing mode
     DstAddrMode,
     /// Source addressing mode
     SrcAddrMode,
 }
 
-/// A key descriptor
+/// A partial key descriptor
 pub struct KeyDescriptor {
     /// The key contained by this key descriptor
     pub key: [u8; 16],
+}
+
+/// A partial device descriptor
+pub struct DeviceDescriptor {
+    /// The address of this device
+    pub address: Address,
+    /// The frame counter associated with this device
+    pub frame_counter: u32,
+    /// Whether this device is allowed to override the minimum security level
+    pub exempt: bool,
 }
 
 /// Used to create a KeyDescriptor from a KeyIdentifier and device address
@@ -187,21 +197,20 @@ where
     /// found according to the passed in parameters
     fn lookup_key(
         &self,
-        address_mode: KeyAddressMode,
+        address_mode: AddressingMode,
         key_identifier: Option<KeyIdentifier>,
         device_address: Option<Address>,
     ) -> Option<GenericArray<u8, N>>;
 }
 
-/// Generates a nonce from the 13-byte nonce that the standard provides.
-/// The generated nonce must be deterministic
-pub trait NonceGenerator<N>
-where
-    N: ArrayLength<u8>,
-{
-    /// Generate an N-length nonce from the 13 byte nonce generated using the method provided
-    /// by the 802.15.4 standard
-    fn generate_nonce(input_nonce: [u8; 13], destination: &mut GenericArray<u8, N>);
+/// Perform a lookup of a device descriptor based on the provided address
+pub trait DeviceDescriptorLookup {
+    /// look up a device
+    fn lookup_device(
+        &self,
+        addressing_mode: AddressingMode,
+        address: Address,
+    ) -> Option<&mut DeviceDescriptor>;
 }
 
 /// A context that used to keep track of cryptographic properties that
@@ -212,11 +221,11 @@ where
 ///
 /// NONCEGEN is the type that will convert the nonce created using the 802.15.4 standard
 /// into a nonce of the size that can be accepted by the provided AEAD algorithm
-pub struct SecurityContext<'a, AEAD, KEYDESCLO, NONCEGEN>
+pub struct SecurityContext<'a, AEADBLKCIPH, KEYDESCLO, KEYSIZE>
 where
-    AEAD: NewAead + AeadInPlace,
-    KEYDESCLO: KeyLookup<<AEAD as NewAead>::KeySize>,
-    NONCEGEN: NonceGenerator<<AEAD as AeadInPlace>::NonceSize>,
+    KEYSIZE: ArrayLength<u8>,
+    AEADBLKCIPH: BlockCipher<BlockSize = U16>,
+    KEYDESCLO: KeyLookup<KEYSIZE>,
 {
     /// The current frame counter
     pub frame_counter: u32,
@@ -226,7 +235,7 @@ where
     /// of AEAD, as opposed to actually using a provided AEAD instance somewhere
     ///
     /// The NONCEGEN is phantom data as well
-    phantom_data: PhantomData<(AEAD, NONCEGEN)>,
+    phantom_data: PhantomData<(AEADBLKCIPH, KEYSIZE)>,
 }
 
 /// Appends the auxiliary security header and
@@ -237,22 +246,23 @@ where
 ///
 /// Currently only supports the securing of Data frames with extended addresses
 ///
-pub fn secure_frame<'a, AEAD, KEYDESCLO, NONCEGEN>(
+/// Partial implementation of 7.2.1
+pub fn secure_frame<'a, AEADBLKCIPH, KEYDESCLO, KEYSIZE>(
     frame: Frame<'_>,
-    context: &mut SecurityContext<AEAD, KEYDESCLO, NONCEGEN>,
+    context: &mut SecurityContext<AEADBLKCIPH, KEYDESCLO, KEYSIZE>,
     offset: &mut usize,
     buffer: &mut [u8],
 ) -> Result<(), SecurityError>
 where
-    AEAD: NewAead + AeadInPlace,
-    KEYDESCLO: KeyLookup<AEAD::KeySize>,
-    NONCEGEN: NonceGenerator<AEAD::NonceSize>,
+    AEADBLKCIPH: BlockCipher<BlockSize = U16>,
+    KEYSIZE: ArrayLength<u8>,
+    KEYDESCLO: KeyLookup<KEYSIZE>,
 {
     let header = frame.header;
 
     if header.security {
         let frame_counter = &mut context.frame_counter;
-        let source = match header.source {
+        let destination = match header.destination {
             Some(addr) => addr,
             _ => return Err(SecurityError::NoSourceAddress),
         };
@@ -264,7 +274,7 @@ where
         }
 
         let mut input_nonce = [0u8; 13];
-        match source {
+        match destination {
             // Not implemented because currently no functionality for determining the
             // extended address with which a short address is associated exists
             Address::Short(..) => return Err(SecurityError::NotImplemented),
@@ -311,30 +321,31 @@ where
 
             // Partial 7.2.1e, 7.2.2 is only partially implemented
             if let Some(key) = context.key_provider.lookup_key(
-                KeyAddressMode::DstAddrMode,
+                AddressingMode::DstAddrMode,
                 aux_sec_header.key_identifier,
                 header.destination,
             ) {
-                // Generate adequate length nonce from 13-byte nonce generated by 7.3.2
-                let mut nonce = GenericArray::default();
-                NONCEGEN::generate_nonce(input_nonce, &mut nonce);
-
-                let aead_in_place = match AEAD::new_varkey(&key.as_slice()) {
-                    Ok(key) => key,
-                    Err(_) => return Err(SecurityError::KeyFailure)?,
+                let aead = match aux_sec_header.control.security_level {
+                    SecurityLevel::None => None,
+                    SecurityLevel::ENC => Ccm::new(&key),
+                    SecurityLevel::MIC32 | SecurityLevel::ENCMIC32 => {
+                        Ccm::<AEAD32, U4, U13>::new(&key)
+                    }
+                    SecurityLevel::MIC64 | SecurityLevel::ENCMIC64 => Ccm::new(&key),
+                    SecurityLevel::MIC128 | SecurityLevel::ENCMIC128 => Ccm::new(&key),
                 };
 
                 // 7.2.1g
                 let tag = match aux_sec_header.control.security_level {
                     SecurityLevel::None => None,
                     SecurityLevel::MIC32 | SecurityLevel::MIC64 | SecurityLevel::MIC128 => {
-                        Some(aead_in_place.encrypt_in_place_detached(&nonce, buffer, &mut []))
+                        Some(aead.encrypt_in_place_detached(&nonce, buffer, &mut []))
                     }
                     SecurityLevel::ENC
                     | SecurityLevel::ENCMIC32
                     | SecurityLevel::ENCMIC64
                     | SecurityLevel::ENCMIC128 => {
-                        Some(aead_in_place.encrypt_in_place_detached(&nonce, &mut [], buffer))
+                        Some(aead.encrypt_in_place_detached(&nonce, &mut [], buffer))
                     }
                 };
 
@@ -355,8 +366,113 @@ where
             return Err(SecurityError::AuxSecHeaderAbsent);
         }
     } else {
-        // Not a fan of the fact that we can't pass some actually
-        // useful information to the layer above this, only byte::Result
+        if header.auxiliary_security_header.is_some() {
+            return Err(SecurityError::AuxSecHeaderPresent);
+        } else {
+            return Err(SecurityError::SecurityNotEnabled);
+        }
+    }
+}
+
+/// Unsecure a currently secured frame, based on the
+/// settings found in the header of `frame`
+///
+/// Replaces the payload of `frame` with the unsecured version
+///
+/// Partial implementation of 7.2.3
+/// Currently not implemented: 7.2.3h, 7.2.3i, 7.2.3j, 7.2.3k, 7.2.3n
+fn unsecure_frame<'a, AEADBLKCIPH, KEYDESCLO, KEYSIZE, DEVDESCLO>(
+    header: &mut Header,
+    offset: &mut usize,
+    bytes: &mut [u8],
+    context: &mut SecurityContext<AEADBLKCIPH, KEYDESCLO, KEYSIZE>,
+    dev_desc_lo: DEVDESCLO,
+) -> Result<(), SecurityError>
+where
+    KEYSIZE: ArrayLength<u8>,
+    AEADBLKCIPH: BlockCipher<BlockSize = U16>,
+    KEYDESCLO: KeyLookup<KEYSIZE>,
+{
+    if header.security {
+        let source = match header.source {
+            Some(addr) => addr,
+            _ => return Err(SecurityError::NoDestinationAddress),
+        };
+
+        // Check for unimplemented behaviour before performing any operations on the buffer
+        match header.frame_type {
+            FrameType::Data => {}
+            _ => return Err(SecurityError::NotImplemented),
+        }
+
+        let mut input_nonce = [0u8; 13];
+        match source {
+            // Not implemented because currently no functionality for determining the
+            // extended address with which a short address is associated exists
+            Address::Short(..) => return Err(SecurityError::NotImplemented),
+            Address::Extended(_, addr) => {
+                // Generate the nonce as described in 7.2.2
+                for i in 0..7 {
+                    input_nonce[i] = (addr.0 >> (8 * i) & 0xFF) as u8;
+                }
+            }
+        };
+        // 7.2.3b
+        if header.version == FrameVersion::Ieee802154_2003 {
+            return Err(SecurityError::UnsupportedLegacy);
+        }
+
+        let aux_sec_header = match header.auxiliary_security_header {
+            Some(header) => header,
+            None => return Err(SecurityError::AuxSecHeaderAbsent),
+        };
+
+        // 7.2.3c/d (partial)
+        if aux_sec_header.control.security_level == SecurityLevel::None {
+            return Err(SecurityError::UnsupportedSecurity);
+        }
+
+        // 7.2.3f
+        if let Some(key) = context.key_provider.lookup_key(
+            AddressingMode::SrcAddrMode,
+            aux_sec_header.key_identifier,
+            header.source,
+        ) {
+            if let Some(device) = dev_desc_lo.lookup_device(AddressingMode::SrcAddrMode, source) {
+                let frame_counter = &mut device.frame_counter;
+                // 7.2.3l, 7.2.3m
+                if *frame_counter == 0xFFFFFFFF || aux_sec_header.frame_counter < *frame_counter {
+                    return Err(SecurityError::CounterError);
+                }
+
+                let aead_in_place = match AEAD::new_varkey(&key.as_slice()) {
+                    Ok(key) => key,
+                    Err(_) => return Err(SecurityError::KeyFailure)?,
+                };
+
+                // 7.2.1o, 7.2.3p
+                let tag =
+                    match aux_sec_header.control.security_level {
+                        SecurityLevel::None => None,
+                        SecurityLevel::MIC32 | SecurityLevel::MIC64 | SecurityLevel::MIC128 => {
+                            Some(aead_in_place.decrypt_in_place(&nonce, bytes, &mut []))
+                        }
+                        SecurityLevel::ENC
+                        | SecurityLevel::ENCMIC32
+                        | SecurityLevel::ENCMIC64
+                        | SecurityLevel::ENCMIC128 => Some(
+                            aead_in_place.decrypt_in_place_detached(&nonce, &mut [], frame.payload),
+                        ),
+                    };
+            } else {
+                return Err(SecurityError::UnavailableDevice);
+            }
+        } else {
+            return Err(SecurityError::UnavailableKey);
+        }
+
+        return Ok(());
+    } else {
         if header.auxiliary_security_header.is_some() {
             return Err(SecurityError::AuxSecHeaderPresent);
         } else {
@@ -391,9 +507,12 @@ pub enum SecurityError {
     UnavailableKey,
     /// The key could not be used in an adequate manner
     KeyFailure,
-    /// The frame to be secured has no source address specified. The source
+    /// The frame to be unsecured has no source address specified. The source
     /// address is necessary to calculate the nonce, in some cases
     NoSourceAddress,
+    /// The frame to be secured has no destination address specified. The destination
+    /// address is necessary to calculate the nonce, in some cases
+    NoDestinationAddress,
     /// The security (CCM*) transformation could not be completed successfully
     TransformationError,
     /// Something went wrong while writing the frame's payload bytes to the buffer
@@ -409,6 +528,12 @@ pub enum SecurityError {
     /// The type of key identifier mode specified in the security control differs from
     /// the type of key identifier present in the key_identifier field
     KeyIdentifierMismatch,
+    /// When a frame with an unsupported legacy version is passed to the unsecuring function
+    UnsupportedLegacy,
+    /// The security level of an incomin frame is zero
+    UnsupportedSecurity,
+    /// The device descriptor that belongs to an address can not be found
+    UnavailableDevice,
 }
 
 impl From<SecurityError> for byte::Error {
@@ -429,6 +554,9 @@ impl From<SecurityError> for byte::Error {
             SecurityError::KeyFailure => byte::Error::BadInput { err: "KeyFailure" },
             SecurityError::NoSourceAddress => byte::Error::BadInput {
                 err: "NoSourceAddress",
+            },
+            SecurityError::NoDestinationAddress => byte::Error::BadInput {
+                err: "NoDstAddress",
             },
             SecurityError::TransformationError => byte::Error::BadInput {
                 err: "TransformationError",
@@ -452,38 +580,38 @@ impl From<SecurityError> for byte::Error {
             SecurityError::KeyIdentifierMismatch => byte::Error::BadInput {
                 err: "KeyIdentifierMismatch",
             },
+            SecurityError::UnsupportedLegacy => byte::Error::BadInput {
+                err: "UnsupportedLegacy",
+            },
+            SecurityError::UnsupportedSecurity => byte::Error::BadInput {
+                err: "UnsupportedSecurity",
+            },
+            SecurityError::UnavailableDevice => byte::Error::BadInput {
+                err: "UnavailableDevice",
+            },
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    extern crate aead;
+    extern crate ccm;
     extern crate chacha20poly1305;
     use crate::mac::frame::header::*;
     use crate::mac::frame::security::{security_control::*, *};
     use crate::mac::frame::*;
     use crate::mac::{frame::frame_control::*, FooterMode};
-    use aead::generic_array::typenum::Unsigned;
+    use ccm::aead::generic_array::typenum::Unsigned;
     use chacha20poly1305::ChaCha8Poly1305;
 
     type KeySize = <ChaCha8Poly1305 as NewAead>::KeySize;
     type NonceSize = <ChaCha8Poly1305 as AeadInPlace>::NonceSize;
-    struct ChaCha8Poly1305NonceGenerator();
-
-    impl NonceGenerator<NonceSize> for ChaCha8Poly1305NonceGenerator {
-        fn generate_nonce(input_nonce: [u8; 13], destination: &mut GenericArray<u8, NonceSize>) {
-            for i in 0..(NonceSize::to_usize() - 1) {
-                destination[i] = input_nonce[i];
-            }
-        }
-    }
     struct StaticKeyLookup();
 
     impl KeyLookup<KeySize> for StaticKeyLookup {
         fn lookup_key(
             &self,
-            _address_mode: KeyAddressMode,
+            _address_mode: AddressingMode,
             _key_identifier: Option<KeyIdentifier>,
             _device_address: Option<Address>,
         ) -> Option<GenericArray<u8, KeySize>> {
