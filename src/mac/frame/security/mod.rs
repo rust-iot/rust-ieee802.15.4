@@ -13,11 +13,9 @@ use byte::{check_len, BytesExt, TryRead, LE};
 
 use crate::mac::{Address, FrameType};
 
-use self::mock::Unimplemented;
-
 use super::{
     security_control::{KeyIdentifierMode, SecurityControl, SecurityLevel},
-    FooterMode, Frame, FrameSerDesContext,
+    Frame,
 };
 
 pub mod mock;
@@ -373,15 +371,5 @@ impl From<SecurityError> for byte::Error {
             },
             SecurityError::WriteError => byte::Error::BadInput { err: "WriteError" },
         }
-    }
-}
-
-///
-pub fn no_security<'a>(
-    mode: FooterMode,
-) -> FrameSerDesContext<'a, Unimplemented, Unimplemented, Unimplemented> {
-    FrameSerDesContext {
-        footer_mode: mode,
-        security_ctx: None,
     }
 }

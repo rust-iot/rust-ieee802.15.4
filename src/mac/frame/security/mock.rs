@@ -3,8 +3,6 @@
 
 use aead::{consts::U0, AeadCore, AeadInPlace, NewAead};
 
-use crate::mac::{frame::FrameSerDesContext, FooterMode};
-
 use super::{KeyDescriptorLookup, NonceGenerator};
 
 /// An AEAD struct that will panic if it is attempted to be used
