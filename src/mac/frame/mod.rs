@@ -17,7 +17,6 @@ use crate::mac::command::Command;
 mod frame_control;
 pub mod header;
 pub mod security;
-mod security_control;
 use aead::{AeadInPlace, NewAead};
 use byte::{ctx::Bytes, BytesExt, TryRead, TryWrite, LE};
 use header::FrameType;
@@ -25,7 +24,7 @@ pub use header::Header;
 pub use security::AuxiliarySecurityHeader;
 
 use self::security::{
-    mock::Unimplemented, KeyDescriptorLookup, NonceGenerator, SecurityContext, SecurityError,
+    default::Unimplemented, KeyLookup, NonceGenerator, SecurityContext, SecurityError,
 };
 
 /// An IEEE 802.15.4 MAC frame
@@ -177,7 +176,7 @@ pub struct Frame<'p> {
 pub struct FrameSerDesContext<'a, AEAD, KEYDESCLO, NONCEGEN>
 where
     AEAD: NewAead + AeadInPlace,
-    KEYDESCLO: KeyDescriptorLookup,
+    KEYDESCLO: KeyLookup<AEAD::KeySize>,
     NONCEGEN: NonceGenerator<AEAD::NonceSize>,
 {
     /// The footer mode to use when handling frames
@@ -189,7 +188,7 @@ where
 impl<'a, AEAD, KEYDESCLO, NONCEGEN> FrameSerDesContext<'a, AEAD, KEYDESCLO, NONCEGEN>
 where
     AEAD: NewAead + AeadInPlace,
-    KEYDESCLO: KeyDescriptorLookup,
+    KEYDESCLO: KeyLookup<AEAD::KeySize>,
     NONCEGEN: NonceGenerator<AEAD::NonceSize>,
 {
     /// Create a new frame serialization/deserialization context with the specified footer mode
@@ -220,7 +219,7 @@ impl<AEAD, KEYDESCLO, NONCEGEN> TryWrite<FrameSerDesContext<'_, AEAD, KEYDESCLO,
     for Frame<'_>
 where
     AEAD: NewAead + AeadInPlace,
-    KEYDESCLO: KeyDescriptorLookup,
+    KEYDESCLO: KeyLookup<AEAD::KeySize>,
     NONCEGEN: NonceGenerator<AEAD::NonceSize>,
 {
     fn try_write(
@@ -257,7 +256,7 @@ impl<'a, AEAD, KEYDESCLO, NONCEGEN> TryRead<'a, FrameSerDesContext<'_, AEAD, KEY
     for Frame<'a>
 where
     AEAD: NewAead + AeadInPlace,
-    KEYDESCLO: KeyDescriptorLookup,
+    KEYDESCLO: KeyLookup<AEAD::KeySize>,
     NONCEGEN: NonceGenerator<AEAD::NonceSize>,
 {
     fn try_read(
@@ -441,10 +440,9 @@ impl From<EncodeError> for byte::Error {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::mac::beacon;
     use crate::mac::command;
-    use crate::mac::frame::FrameSerDesContext;
+    use crate::mac::frame::*;
     use crate::mac::{Address, ExtendedAddress, FrameVersion, PanId, ShortAddress};
 
     #[test]
@@ -479,7 +477,8 @@ mod tests {
         let data = [
             0x41, 0x80, 0x91, 0x8f, 0x20, 0xff, 0xff, 0x33, 0x44, 0x00, 0x00,
         ];
-        let frame = data.read_with::<Frame>(&mut 0, FrameSerDesContext::no_security(FooterMode::None));
+        let frame =
+            data.read_with::<Frame>(&mut 0, FrameSerDesContext::no_security(FooterMode::None));
         assert!(frame.is_err());
         if let Err(e) = frame {
             assert_eq!(e, DecodeError::InvalidAddressMode(0).into())
@@ -537,8 +536,12 @@ mod tests {
         };
         let mut buf = [0u8; 32];
         let mut len = 0usize;
-        buf.write_with(&mut len, frame, FrameSerDesContext::no_security(FooterMode::None))
-            .unwrap();
+        buf.write_with(
+            &mut len,
+            frame,
+            FrameSerDesContext::no_security(FooterMode::None),
+        )
+        .unwrap();
         assert_eq!(len, 13);
         assert_eq!(
             buf[..len],
@@ -581,8 +584,12 @@ mod tests {
         };
         let mut buf = [0u8; 32];
         let mut len = 0usize;
-        buf.write_with(&mut len, frame, FrameSerDesContext::no_security(FooterMode::None))
-            .unwrap();
+        buf.write_with(
+            &mut len,
+            frame,
+            FrameSerDesContext::no_security(FooterMode::None),
+        )
+        .unwrap();
         assert_eq!(len, 23);
         assert_eq!(
             buf[..len],
@@ -617,8 +624,12 @@ mod tests {
         };
         let mut buf = [0u8; 32];
         let mut len = 0usize;
-        buf.write_with(&mut len, frame, FrameSerDesContext::no_security(FooterMode::None))
-            .unwrap();
+        buf.write_with(
+            &mut len,
+            frame,
+            FrameSerDesContext::no_security(FooterMode::None),
+        )
+        .unwrap();
         assert_eq!(len, 15);
         assert_eq!(
             buf[..len],
@@ -650,8 +661,12 @@ mod tests {
         };
         let mut buf = [0u8; 32];
         let mut len = 0usize;
-        buf.write_with(&mut len, frame, FrameSerDesContext::no_security(FooterMode::None))
-            .unwrap();
+        buf.write_with(
+            &mut len,
+            frame,
+            FrameSerDesContext::no_security(FooterMode::None),
+        )
+        .unwrap();
         assert_eq!(len, 8);
         assert_eq!(buf[..len], [0x23, 0xa0, 0xff, 0x34, 0x12, 0xbc, 0x9a, 0x04]);
     }

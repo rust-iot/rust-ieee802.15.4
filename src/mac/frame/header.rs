@@ -86,8 +86,8 @@ impl Header {
                     len += 2;
                     // Address length
                     match addr {
-                        Address::Short(_, _) => len += 2,
-                        Address::Extended(_, _) => len += 8,
+                        Address::Short(..) => len += 2,
+                        Address::Extended(..) => len += 8,
                     }
                 }
                 _ => {}

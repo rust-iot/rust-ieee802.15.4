@@ -1,8 +1,8 @@
 //! The security control header is described here
 
-use byte::{BytesExt, TryRead, LE};
+use byte::{BytesExt, TryRead, TryWrite, LE};
 
-use super::DecodeError;
+use crate::mac::DecodeError;
 
 /// The Security Control header
 ///
@@ -12,14 +12,10 @@ pub struct SecurityControl {
     /// The security level applied to the incoming frame
     pub security_level: SecurityLevel,
     /// The mode used to identify the key used to secure the incoming frame
-    pub key_id_mode: KeyIdentifierMode,
-    // The below fields are present only in the 802.15.4-2020 version of the standard
-    /*
-    /// Whether or not the frame counter is present in the auxiliary security header
-    pub frame_counter_suppression: bool,
-    /// Whether the ASN is present in the nonce supplied
-    pub asn_in_nonce: bool,
-     */
+    ///
+    /// This field is set/overwritten when the AuxiliarySecurityHeader that contains this
+    /// SecurityControl is written, based on the [super::KeyIdentifier] that it contains
+    pub(crate) key_id_mode: KeyIdentifierMode,
 }
 
 impl TryRead<'_> for SecurityControl {
@@ -41,6 +37,21 @@ impl TryRead<'_> for SecurityControl {
         };
 
         Ok((control, *offset))
+    }
+}
+
+impl TryWrite for SecurityControl {
+    fn try_write(self, bytes: &mut [u8], _ctx: ()) -> byte::Result<usize> {
+        let offset = &mut 0;
+        bytes.write(
+            offset,
+            self.security_level.to_bits() << offset::SECURITY_LEVEL,
+        )?;
+        bytes.write(
+            offset,
+            self.key_id_mode.to_bits() << offset::KEY_IDENTIFIER_MODE,
+        )?;
+        Ok(*offset)
     }
 }
 
@@ -80,6 +91,21 @@ impl SecurityLevel {
         }
     }
 
+    fn to_bits(&self) -> u8 {
+        match self {
+            SecurityLevel::None => 0b000,
+            SecurityLevel::MIC32 => 0b001,
+            SecurityLevel::MIC64 => 0b010,
+            SecurityLevel::MIC128 => 0b011,
+            SecurityLevel::ENC => 0b100,
+            SecurityLevel::ENCMIC32 => 0b101,
+            SecurityLevel::ENCMIC64 => 0b110,
+            SecurityLevel::ENCMIC128 => 0b111,
+        }
+    }
+
+    /// Get the size of the mic that will be generated if this specific security
+    /// level is used
     pub fn get_mic_octet_count(&self) -> u8 {
         match self {
             SecurityLevel::None | SecurityLevel::ENC => 0,
@@ -111,6 +137,14 @@ impl KeyIdentifierMode {
             0b10 => Some(KeyIdentifierMode::KeySource4),
             0b11 => Some(KeyIdentifierMode::KeySource8),
             _ => None,
+        }
+    }
+    fn to_bits(&self) -> u8 {
+        match self {
+            KeyIdentifierMode::None => 0b00,
+            KeyIdentifierMode::KeyIndex => 0b01,
+            KeyIdentifierMode::KeySource4 => 0b10,
+            KeyIdentifierMode::KeySource8 => 0b11,
         }
     }
 }
