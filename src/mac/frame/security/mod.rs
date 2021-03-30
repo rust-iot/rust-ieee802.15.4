@@ -229,18 +229,17 @@ where
     phantom_data: PhantomData<(AEAD, NONCEGEN)>,
 }
 
-/// Appends the payload of a [Frame] to the provided buffer, secured according to the security settings specified in
+/// Appends the auxiliary security header and
+/// secured payload of a [Frame] to the provided buffer, secured according to the security settings specified in
 /// the [Frame]'s [`super::Header`] and [AuxiliarySecurityHeader].
 ///
 /// Offset is updated with the amount of bytes that is written
 ///
 /// Currently only supports the securing of Data frames with extended addresses
 ///
-/// # Panics
-/// If this function is called on a frame with security enabled, but `context` is None
-pub fn secure_payload<'a, AEAD, KEYDESCLO, NONCEGEN>(
+pub fn secure_frame<'a, AEAD, KEYDESCLO, NONCEGEN>(
     frame: Frame<'_>,
-    context: Option<&mut SecurityContext<AEAD, KEYDESCLO, NONCEGEN>>,
+    context: &mut SecurityContext<AEAD, KEYDESCLO, NONCEGEN>,
     offset: &mut usize,
     buffer: &mut [u8],
 ) -> Result<(), SecurityError>
@@ -252,11 +251,6 @@ where
     let header = frame.header;
 
     if header.security {
-        let context = match context {
-            Some(context) => context,
-            None => panic!("Missing security context"),
-        };
-
         let frame_counter = &mut context.frame_counter;
         let source = match header.source {
             Some(addr) => addr,
@@ -567,7 +561,7 @@ mod tests {
         let offset = &mut 0;
         let mut buf = [0u8; 127];
         let mut sec_ctx = c8p1305_sec_ctx(1000);
-        let write_res = security::secure_payload(frame, Some(&mut sec_ctx), offset, &mut buf);
+        let write_res = security::secure_frame(frame, &mut sec_ctx, offset, &mut buf);
         if let Err(SecurityError::SecurityNotEnabled) = write_res {
         } else {
             assert!(

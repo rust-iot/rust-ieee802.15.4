@@ -230,18 +230,28 @@ where
         let mode = context.footer_mode;
         let offset = &mut 0;
 
+        if self.header.security && context.security_ctx.is_none() {
+            return Err(EncodeError::MissingSecurityCtx)?;
+        }
+
         bytes.write(offset, self.header)?;
         bytes.write(offset, self.content)?;
 
-        let write_secured = security::secure_payload(self, context.security_ctx, offset, bytes);
+        let mut security_enabled = false;
 
-        if let Err(e) = write_secured {
-            match e {
-                SecurityError::SecurityNotEnabled => {
-                    bytes.write(offset, self.payload)?;
-                }
-                _ => return Err(e)?,
+        if let Some(ctx) = context.security_ctx {
+            let write_secured = security::secure_frame(self, ctx, offset, bytes);
+            match write_secured {
+                Ok(_) => security_enabled = true,
+                Err(e) => match e {
+                    SecurityError::SecurityNotEnabled => {}
+                    _ => return Err(e)?,
+                },
             }
+        }
+
+        if !security_enabled {
+            bytes.write(offset, self.payload)?;
         }
 
         match mode {
@@ -428,12 +438,17 @@ impl From<DecodeError> for byte::Error {
 pub enum EncodeError {
     /// Something went wrong while writing a frame's bytes to the destination
     WriteError,
+    /// Security is enabled but no security context is specified
+    MissingSecurityCtx,
 }
 
 impl From<EncodeError> for byte::Error {
     fn from(e: EncodeError) -> Self {
         match e {
             EncodeError::WriteError => byte::Error::BadInput { err: "WriteError" },
+            EncodeError::MissingSecurityCtx => byte::Error::BadInput {
+                err: "MissingSecurityCtx",
+            },
         }
     }
 }
