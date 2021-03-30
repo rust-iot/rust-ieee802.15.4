@@ -234,7 +234,7 @@ where
         bytes.write(offset, self.header)?;
         bytes.write(offset, self.content)?;
 
-        let write_secured = security::write_payload(self, context.security_ctx, offset, bytes);
+        let write_secured = security::secure_payload(self, context.security_ctx, offset, bytes);
 
         if let Err(e) = write_secured {
             match e {

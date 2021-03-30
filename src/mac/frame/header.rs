@@ -73,6 +73,31 @@ pub struct Header {
     pub auxiliary_security_header: Option<AuxiliarySecurityHeader>,
 }
 
+impl Header {
+    /// Get the size of this header in octets
+    pub fn get_octet_size(&self) -> u8 {
+        // Frame control + sequence number
+        let mut len = 3u8;
+
+        for i in [self.destination, self.source].iter() {
+            match i {
+                Some(addr) => {
+                    // pan ID
+                    len += 2;
+                    // Address length
+                    match addr {
+                        Address::Short(_, _) => len += 2,
+                        Address::Extended(_, _) => len += 8,
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        len
+    }
+}
+
 impl TryRead<'_> for Header {
     fn try_read(bytes: &[u8], _ctx: ()) -> byte::Result<(Self, usize)> {
         let offset = &mut 0;

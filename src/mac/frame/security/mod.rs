@@ -18,7 +18,7 @@ use super::{
     Frame,
 };
 
-pub mod mock;
+pub(crate) mod mock;
 
 /// A struct describing the Auxiliary Security Header
 /// See: section 7.4 of the 802.15.4-2011 standard
@@ -179,14 +179,8 @@ where
 /// Currently only supports the securing of Data frames with extended addresses
 ///
 /// # Panics
-/// If the security field in the frame's [`super::Header`] is true in the frame's header, but no [AuxiliarySecurityHeader] is present.
-///
-/// If security is false in the [`super::Header`] header, but an [AuxiliarySecurityHeader] is present.
-///
-/// If an unsupported frame type is used (i.e. anything that doesn't have an extended [Address] and the Data [FrameType])
-///
-/// If the provided security context is None, while security is enabled on the frame
-pub fn write_payload<'a, AEAD, KEYDESCLO, NONCEGEN>(
+/// If this function is called on a frame with security enabled, but `context` is None
+pub fn secure_payload<'a, AEAD, KEYDESCLO, NONCEGEN>(
     frame: Frame<'_>,
     context: Option<&mut SecurityContext<AEAD, KEYDESCLO, NONCEGEN>>,
     offset: &mut usize,
@@ -207,24 +201,21 @@ where
         let frame_counter = &mut context.frame_counter;
         let source = match header.source {
             Some(addr) => addr,
-            // Maybe this should panic instead
             _ => return Err(SecurityError::NoSourceAddress),
         };
 
         match header.frame_type {
             FrameType::Data => {}
-            _ => {
-                unimplemented!()
-            }
+            _ => return Err(SecurityError::NotImplemented),
         }
         // Procedure 7.2.1
         if let Some(aux_sec_header) = header.auxiliary_security_header {
             let auth_len = aux_sec_header.control.security_level.get_mic_octet_count();
             let aux_len = aux_sec_header.get_octet_size();
 
-            // If AuthLen plus AuxLen plus FCS is bigger than aMaxPHYPacketSize
+            // If frame size plus AuthLen plus AuxLen plus FCS is bigger than aMaxPHYPacketSize
             // 7.2.1 b4
-            if auth_len + aux_len + 2 > 127 {
+            if !(frame.header.get_octet_size() + aux_len + auth_len + 2 <= 127) {
                 return Err(SecurityError::FrameTooLong);
             }
 
@@ -291,13 +282,13 @@ where
                 return Err(SecurityError::UnavailableKey);
             }
         } else {
-            panic!("Security on but AuxSecHeader absent")
+            return Err(SecurityError::AuxSecHeaderAbsent);
         }
     } else {
         // Not a fan of the fact that we can't pass some actually
         // useful information to the layer above this, only byte::Result
         if header.auxiliary_security_header.is_some() {
-            panic!("Security off but AuxSecHeader present")
+            return Err(SecurityError::AuxSecHeaderPresent);
         } else {
             return Err(SecurityError::SecurityNotEnabled);
         }
@@ -339,6 +330,12 @@ pub enum SecurityError {
     WriteError,
     /// Something went wrong while writing a frame's tag to the buffer
     TagWriteError,
+    /// When functionality that is not implemented is used
+    NotImplemented,
+    /// Security is enabled, but no auxiliary security header is present
+    AuxSecHeaderAbsent,
+    /// Security is disabled, but an auxiliary security header is present
+    AuxSecHeaderPresent,
 }
 
 impl From<SecurityError> for byte::Error {
@@ -370,6 +367,15 @@ impl From<SecurityError> for byte::Error {
                 err: "SecurityNotEnabled",
             },
             SecurityError::WriteError => byte::Error::BadInput { err: "WriteError" },
+            SecurityError::NotImplemented => byte::Error::BadInput {
+                err: "NotImplemented",
+            },
+            SecurityError::AuxSecHeaderAbsent => byte::Error::BadInput {
+                err: "AuxSecHeaderAbsent",
+            },
+            SecurityError::AuxSecHeaderPresent => byte::Error::BadInput {
+                err: "WriteErAuxSecHeaderPresentror",
+            },
         }
     }
 }
