@@ -464,11 +464,13 @@ impl From<SecurityError> for byte::Error {
 
 #[cfg(test)]
 mod tests {
+    extern crate aead;
     extern crate chacha20poly1305;
-    use crate::mac::frame::frame_control::*;
     use crate::mac::frame::header::*;
-    use crate::mac::frame::security::*;
+    use crate::mac::frame::security::{security_control::*, *};
     use crate::mac::frame::*;
+    use crate::mac::{frame::frame_control::*, FooterMode};
+    use aead::generic_array::typenum::Unsigned;
     use chacha20poly1305::ChaCha8Poly1305;
 
     type KeySize = <ChaCha8Poly1305 as NewAead>::KeySize;
@@ -477,57 +479,66 @@ mod tests {
 
     impl NonceGenerator<NonceSize> for ChaCha8Poly1305NonceGenerator {
         fn generate_nonce(input_nonce: [u8; 13], destination: &mut GenericArray<u8, NonceSize>) {
-            todo!()
+            for i in 0..(NonceSize::to_usize() - 1) {
+                destination[i] = input_nonce[i];
+            }
         }
     }
-
-    fn chacha8poly1305_security_context<'a>(
-    ) -> SecurityContext<'a, ChaCha8Poly1305, StaticKeyLookup, ChaCha8Poly1305NonceGenerator> {
-        SecurityContext {
-            frame_counter: 1800,
-            key_provider: StaticKeyLookup(),
-            phantom_data: PhantomData(),
-        }
-    }
-
     struct StaticKeyLookup();
 
     impl KeyLookup<KeySize> for StaticKeyLookup {
         fn lookup_key(
             &self,
-            address_mode: KeyAddressMode,
-            key_identifier: Option<KeyIdentifier>,
-            device_address: Option<Address>,
+            _address_mode: KeyAddressMode,
+            _key_identifier: Option<KeyIdentifier>,
+            _device_address: Option<Address>,
         ) -> Option<GenericArray<u8, KeySize>> {
-            let key = GenericArray::default();
+            let mut key = GenericArray::default();
             key[0] = 0x01;
             key[2] = 0x02;
             key[3] = 0x03;
-            for i in 4..KeySize::as_u8() {
+            for i in 4..KeySize::to_usize() {
                 key[i] = 0x00;
             }
             Some(key)
         }
     }
 
-    #[test]
-    fn encode_secured() {
-        let auxiliary_security_header = Some(AuxiliarySecurityHeader {
-            control: SecurityControl {
-                security_level: SecurityLevel::None,
-                key_id_mode: KeyIdentifierMode::None,
-            },
-            frame_counter: 1337,
-            key_identifier: Some(KeyIdentifier {
-                key_source: None,
-                key_index: 0,
-            }),
-        });
+    const STATIC_KEY_LOOKUP: StaticKeyLookup = StaticKeyLookup();
 
-        let frame = Frame {
+    fn c8p1305_sec_ctx<'a>(
+        frame_counter: u32,
+    ) -> SecurityContext<'a, ChaCha8Poly1305, StaticKeyLookup, ChaCha8Poly1305NonceGenerator> {
+        SecurityContext {
+            frame_counter,
+            key_provider: &STATIC_KEY_LOOKUP,
+            phantom_data: PhantomData,
+        }
+    }
+
+    fn frame_serdes_ctx<'a>(
+        security_ctx: &'a mut SecurityContext<
+            'a,
+            ChaCha8Poly1305,
+            StaticKeyLookup,
+            ChaCha8Poly1305NonceGenerator,
+        >,
+    ) -> FrameSerDesContext<'a, ChaCha8Poly1305, StaticKeyLookup, ChaCha8Poly1305NonceGenerator>
+    {
+        FrameSerDesContext {
+            security_ctx: Some(security_ctx),
+            footer_mode: FooterMode::None,
+        }
+    }
+
+    fn get_frame<'a>(
+        security: bool,
+        auxiliary_security_header: Option<AuxiliarySecurityHeader>,
+    ) -> Frame<'a> {
+        Frame {
             header: Header {
                 frame_type: FrameType::Data,
-                security: true,
+                security,
                 frame_pending: false,
                 ack_request: false,
                 pan_id_compress: false,
@@ -541,14 +552,50 @@ mod tests {
                     PanId(511),
                     ExtendedAddress(0xAAFFAAFFAAFFu64),
                 )),
-                auxiliary_security_header,
+                auxiliary_security_header: auxiliary_security_header,
             },
             content: FrameContent::Data,
             payload: &[0xAA, 0xBB, 0xCC, 0xDD, 0xFE, 0xDE],
             footer: [0x00, 0x00],
-        };
+        }
+    }
+
+    #[test]
+    fn encode_unsecured() {
+        let frame = get_frame(false, None);
+
+        let offset = &mut 0;
+        let mut buf = [0u8; 127];
+        let mut sec_ctx = c8p1305_sec_ctx(1000);
+        let write_res = security::secure_payload(frame, Some(&mut sec_ctx), offset, &mut buf);
+        if let Err(SecurityError::SecurityNotEnabled) = write_res {
+        } else {
+            assert!(
+                false,
+                "Security was not enabled, but securing payload succeeded!"
+            );
+        }
+    }
+    #[test]
+    fn encode_secured() {
+        let aux_sec_header = Some(AuxiliarySecurityHeader {
+            control: SecurityControl {
+                security_level: SecurityLevel::None,
+                key_id_mode: KeyIdentifierMode::None,
+            },
+            frame_counter: 1337,
+            key_identifier: Some(KeyIdentifier {
+                key_source: None,
+                key_index: 0,
+            }),
+        });
+
+        let frame = get_frame(true, aux_sec_header);
 
         let mut buf = [0u8; 127];
-        frame.write_with()
+        let mut sec_ctx = c8p1305_sec_ctx(1000);
+        let frame_serdes_ctx = frame_serdes_ctx(&mut sec_ctx);
+        let write_res = frame.try_write(&mut buf, frame_serdes_ctx);
+        assert!(write_res.is_ok());
     }
 }

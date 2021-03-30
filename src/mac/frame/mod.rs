@@ -49,7 +49,7 @@ use self::security::{
 ///     FrameType,
 ///     FooterMode,
 ///     PanId,
-///     frame::security::no_security
+///     FrameSerDesContext,
 /// };
 /// use byte::BytesExt;
 ///
@@ -65,7 +65,7 @@ use self::security::{
 ///     0x12, 0x34,             // payload
 /// ];
 ///
-/// let frame: Frame = bytes.read_with(&mut 0, no_security(FooterMode::Explicit)).unwrap();
+/// let frame: Frame = bytes.read_with(&mut 0, FrameSerDesContext::no_security(FooterMode::Explicit)).unwrap();
 /// let header = frame.header;
 ///
 /// assert_eq!(frame.header.seq,       0x00);
@@ -107,7 +107,7 @@ use self::security::{
 ///   FrameVersion,
 ///   Header,
 ///   PanId,
-///   frame::security::no_security,
+///   FrameSerDesContext,
 /// };
 /// use byte::BytesExt;
 ///
@@ -134,7 +134,7 @@ use self::security::{
 /// let mut bytes = [0u8; 32];
 /// let mut len = 0usize;
 ///
-/// bytes.write_with(&mut len, frame, no_security(FooterMode::Explicit)).unwrap();
+/// bytes.write_with(&mut len, frame, FrameSerDesContext::no_security(FooterMode::Explicit)).unwrap();
 ///
 /// let expected_bytes = [
 ///     0x01, 0x98,             // frame control
