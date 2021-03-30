@@ -1,57 +1,16 @@
 //! Provides a default AEAD to satisfy the type requirements for (de-)serializing frames without
 //! any security
 
-use ccm::aead::{
-    generic_array::{
-        typenum::consts::{U0, U13, U16, U4, U8},
-        GenericArray,
-    },
-    AeadInPlace, Error, Key, NewAead, Nonce, Tag,
+use ccm::aead::generic_array::{
+    typenum::consts::{U1, U16},
+    GenericArray,
 };
+use cipher::{BlockCipher, NewBlockCipher};
 
-use super::{KeyLookup};
+use super::KeyLookup;
 
-macro_rules! unimplemented_aead {
-    ($name: ident, $nonce_size: ty, $tag_size: ty) => {
-        pub struct $name();
-        impl AeadInPlace for $name {
-            type NonceSize = $nonce_size;
-            type TagSize = $tag_size;
-            type CiphertextOverhead = U0;
-
-            fn encrypt_in_place_detached(
-                &self,
-                _: &Nonce<Self::NonceSize>,
-                _: &[u8],
-                _: &mut [u8],
-            ) -> Result<Tag<Self::TagSize>, ccm::aead::Error> {
-                Err(Error)
-            }
-            fn decrypt_in_place_detached(
-                &self,
-                _: &Nonce<Self::NonceSize>,
-                _: &[u8],
-                _: &mut [u8],
-                _: &Tag<Self::TagSize>,
-            ) -> Result<(), ccm::aead::Error> {
-                Err(Error)
-            }
-        }
-
-        impl NewAead for $name {
-            type KeySize = U16;
-
-            fn new(_: &Key<Self>) -> Self {
-                Self {}
-            }
-        }
-    };
-}
-
-unimplemented_aead!(UnimplementedAead32, U13, U4);
-unimplemented_aead!(UnimplementedAead64, U13, U8);
-unimplemented_aead!(UnimplementedAead128, U13, U16);
-
+/// A struct that fullfills all of the type checks, but is not actually capable of
+/// performing any of the operations
 pub struct Unimplemented();
 
 impl KeyLookup<U16> for Unimplemented {
@@ -62,5 +21,23 @@ impl KeyLookup<U16> for Unimplemented {
         _device_address: Option<crate::mac::Address>,
     ) -> Option<GenericArray<u8, U16>> {
         None
+    }
+}
+
+impl BlockCipher for Unimplemented {
+    type BlockSize = U16;
+
+    type ParBlocks = U1;
+
+    fn encrypt_block(&self, _block: &mut cipher::block::Block<Self>) {}
+
+    fn decrypt_block(&self, _block: &mut cipher::block::Block<Self>) {}
+}
+
+impl NewBlockCipher for Unimplemented {
+    type KeySize = U16;
+
+    fn new(_key: &cipher::block::Key<Self>) -> Self {
+        Unimplemented {}
     }
 }

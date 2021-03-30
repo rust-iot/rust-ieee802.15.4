@@ -18,8 +18,8 @@ mod frame_control;
 pub mod header;
 pub mod security;
 use byte::{ctx::Bytes, BytesExt, TryRead, TryWrite, LE};
-use ccm::aead::generic_array::{typenum::consts::U16, ArrayLength};
-use cipher::BlockCipher;
+use ccm::aead::generic_array::typenum::consts::U16;
+use cipher::{BlockCipher, NewBlockCipher};
 use header::FrameType;
 pub use header::Header;
 pub use security::AuxiliarySecurityHeader;
@@ -172,29 +172,27 @@ pub struct Frame<'p> {
 
 /// A context that is used for serializing and deserializing frames, which also
 /// stores the frame counter
-pub struct FrameSerDesContext<'a, AEADBLKCIPH, KEYDESCLO, KEYSIZE>
+pub struct FrameSerDesContext<'a, AEADBLKCIPH, KEYDESCLO>
 where
-    KEYSIZE: ArrayLength<u8>,
-    AEADBLKCIPH: BlockCipher<BlockSize = U16>,
-    KEYDESCLO: KeyLookup<KEYSIZE>,
+    AEADBLKCIPH: NewBlockCipher + BlockCipher<BlockSize = U16>,
+    KEYDESCLO: KeyLookup<AEADBLKCIPH::KeySize>,
 {
     /// The footer mode to use when handling frames
     footer_mode: FooterMode,
     /// The security context for handling frames (if any)
-    security_ctx: Option<&'a mut SecurityContext<'a, AEADBLKCIPH, KEYDESCLO, KEYSIZE>>,
+    security_ctx: Option<&'a mut SecurityContext<'a, AEADBLKCIPH, KEYDESCLO>>,
 }
 
-impl<'a, AEADBLKCIPH, KEYDESCLO, KEYSIZE> FrameSerDesContext<'a, AEADBLKCIPH, KEYDESCLO, KEYSIZE>
+impl<'a, AEADBLKCIPH, KEYDESCLO> FrameSerDesContext<'a, AEADBLKCIPH, KEYDESCLO>
 where
-    KEYSIZE: ArrayLength<u8>,
-    AEADBLKCIPH: BlockCipher<BlockSize = U16>,
-    KEYDESCLO: KeyLookup<KEYSIZE>,
+    AEADBLKCIPH: NewBlockCipher + BlockCipher<BlockSize = U16>,
+    KEYDESCLO: KeyLookup<AEADBLKCIPH::KeySize>,
 {
     /// Create a new frame serialization/deserialization context with the specified footer mode
     /// and security context
     pub fn new(
         mode: FooterMode,
-        security_ctx: &'a mut SecurityContext<'a, AEADBLKCIPH, KEYDESCLO, KEYSIZE>,
+        security_ctx: &'a mut SecurityContext<'a, AEADBLKCIPH, KEYDESCLO>,
     ) -> Self {
         FrameSerDesContext {
             footer_mode: mode,
@@ -203,7 +201,7 @@ where
     }
 }
 
-impl FrameSerDesContext<'_, UnimplementedAead32, UnimplementedAead64, UnimplementedAead128> {
+impl FrameSerDesContext<'_, Unimplemented, Unimplemented> {
     /// Create a new frame serialization/deserialization context with the specified footer mode,
     /// that does not facilitate any security functionality
     pub fn no_security(mode: FooterMode) -> Self {
@@ -214,17 +212,15 @@ impl FrameSerDesContext<'_, UnimplementedAead32, UnimplementedAead64, Unimplemen
     }
 }
 
-impl<AEADBLKCIPH, KEYDESCLO, KEYSIZE>
-    TryWrite<FrameSerDesContext<'_, AEADBLKCIPH, KEYDESCLO, KEYSIZE>> for Frame<'_>
+impl<AEADBLKCIPH, KEYDESCLO> TryWrite<FrameSerDesContext<'_, AEADBLKCIPH, KEYDESCLO>> for Frame<'_>
 where
-    KEYSIZE: ArrayLength<u8>,
-    AEADBLKCIPH: BlockCipher<BlockSize = U16>,
-    KEYDESCLO: KeyLookup<KEYSIZE>,
+    AEADBLKCIPH: NewBlockCipher + BlockCipher<BlockSize = U16>,
+    KEYDESCLO: KeyLookup<AEADBLKCIPH::KeySize>,
 {
     fn try_write(
         self,
         bytes: &mut [u8],
-        context: FrameSerDesContext<AEADBLKCIPH, KEYDESCLO, KEYSIZE>,
+        context: FrameSerDesContext<AEADBLKCIPH, KEYDESCLO>,
     ) -> byte::Result<usize> {
         let mode = context.footer_mode;
         let offset = &mut 0;
@@ -261,16 +257,15 @@ where
     }
 }
 
-impl<'a, AEADBLKCIPH, KEYDESCLO, KEYSIZE>
-    TryRead<'a, FrameSerDesContext<'_, AEADBLKCIPH, KEYDESCLO, KEYSIZE>> for Frame<'a>
+impl<'a, AEADBLKCIPH, KEYDESCLO> TryRead<'a, FrameSerDesContext<'_, AEADBLKCIPH, KEYDESCLO>>
+    for Frame<'a>
 where
-    KEYSIZE: ArrayLength<u8>,
-    AEADBLKCIPH: BlockCipher<BlockSize = U16>,
-    KEYDESCLO: KeyLookup<KEYSIZE>,
+    AEADBLKCIPH: NewBlockCipher + BlockCipher<BlockSize = U16>,
+    KEYDESCLO: KeyLookup<AEADBLKCIPH::KeySize>,
 {
     fn try_read(
         bytes: &'a [u8],
-        context: FrameSerDesContext<AEADBLKCIPH, KEYDESCLO, KEYSIZE>,
+        context: FrameSerDesContext<AEADBLKCIPH, KEYDESCLO>,
     ) -> byte::Result<(Self, usize)> {
         let mode = context.footer_mode;
         let offset = &mut 0;

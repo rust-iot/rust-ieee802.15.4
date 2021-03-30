@@ -21,8 +21,8 @@ travis-ci   = { repository = "braun-robotics/ieee802154" }
 hash32        = "0.1"
 hash32-derive = "0.1"
 byte = "0.2.4"
-cipher = { version = "=0.3.0-pre.4", default-features = false }
-ccm = {version = "0.3.0", default-features = false, features = ["heapless"]}
+cipher = { version = "0.2", default-features = false }
+ccm = {version = "0.3.0", default-features = false}
 
 [dev-dependencies]
-chacha20poly1305 = {version = "0.7.1", features = ["reduced-round"], default-features = false}
+aes-soft = {version = "0.6.4", default-features = false}
