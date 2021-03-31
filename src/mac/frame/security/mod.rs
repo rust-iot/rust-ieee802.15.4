@@ -5,14 +5,14 @@
 
 use core::marker::PhantomData;
 
-use byte::{ctx::Bytes, BytesExt, TryRead, TryWrite, LE};
+use byte::{BytesExt, TryRead, TryWrite, LE};
 use ccm::{
     aead::{
         generic_array::{
             typenum::consts::{U13, U16, U4, U8},
             ArrayLength, GenericArray,
         },
-        AeadInPlace, NewAead, Tag,
+        AeadInPlace, NewAead,
     },
     Ccm,
 };
@@ -207,7 +207,7 @@ where
 pub trait DeviceDescriptorLookup {
     /// look up a device
     fn lookup_device(
-        &self,
+        &mut self,
         addressing_mode: AddressingMode,
         address: Address,
     ) -> Option<&mut DeviceDescriptor>;
@@ -221,6 +221,7 @@ pub trait DeviceDescriptorLookup {
 ///
 /// NONCEGEN is the type that will convert the nonce created using the 802.15.4 standard
 /// into a nonce of the size that can be accepted by the provided AEAD algorithm
+#[derive(Clone, Copy)]
 pub struct SecurityContext<'a, AEADBLKCIPH, KEYDESCLO>
 where
     AEADBLKCIPH: NewBlockCipher + BlockCipher<BlockSize = U16>,
@@ -298,13 +299,13 @@ where
             // Write auxilary authentication header to buffer
             // This is technically only 7.2.1f, but if we perform 7.1.2c first, it would mean that
             // no auxiliary security header is present even if Security Enabled is set to 1
-            if let Err(_) = buffer.write(offset, aux_sec_header) {
-                return Err(SecurityError::WriteError);
+            if let Err(e) = buffer.write(offset, aux_sec_header) {
+                return Err(SecurityError::WriteError(e));
             }
 
             // Write unencrypted data to the buffer, 7.2.1c, preparation for in-place AEAD in 7.2.1g
-            if let Err(_) = buffer.write(offset, frame.payload) {
-                return Err(SecurityError::WriteError);
+            if let Err(e) = buffer.write(offset, frame.payload) {
+                return Err(SecurityError::WriteError(e));
             }
 
             // Success if the security level is none (7.2.1c)
@@ -325,6 +326,7 @@ where
             ) {
                 // 7.2.1g
                 let sec_l = aux_sec_header.control.security_level;
+                let aux_sec_header_len = aux_sec_header.get_octet_size() as usize;
                 match sec_l {
                     SecurityLevel::None => {}
                     SecurityLevel::ENC => {
@@ -333,24 +335,27 @@ where
                     }
                     SecurityLevel::MIC32 | SecurityLevel::ENCMIC32 => {
                         let aead = Ccm::<AEADBLKCIPH, U4, U13>::new(&key);
+
+                        let auth_enc_part = &mut buffer[aux_sec_header_len + 1..*offset];
+
                         let tag = match sec_l {
                             SecurityLevel::MIC32 => aead.encrypt_in_place_detached(
                                 &GenericArray::from_slice(&nonce),
-                                buffer,
+                                auth_enc_part,
                                 &mut [],
                             ),
                             SecurityLevel::ENCMIC32 => aead.encrypt_in_place_detached(
                                 &GenericArray::from_slice(&nonce),
                                 &mut [],
-                                buffer,
+                                auth_enc_part,
                             ),
                             _ => {
                                 panic!("Impossible")
                             }
                         };
                         if let Ok(tag) = tag {
-                            if let Err(_) = buffer.write(offset, tag.as_slice()) {
-                                return Err(SecurityError::WriteError);
+                            if let Err(e) = buffer.write(offset, tag.as_slice()) {
+                                return Err(SecurityError::WriteError(e));
                             }
                         } else {
                             return Err(SecurityError::TransformationError);
@@ -358,24 +363,27 @@ where
                     }
                     SecurityLevel::MIC64 | SecurityLevel::ENCMIC64 => {
                         let aead = Ccm::<AEADBLKCIPH, U8, U13>::new(&key);
+
+                        let auth_enc_part = &mut buffer[aux_sec_header_len + 1..*offset];
+
                         let tag = match sec_l {
-                            SecurityLevel::MIC32 => aead.encrypt_in_place_detached(
+                            SecurityLevel::MIC64 => aead.encrypt_in_place_detached(
                                 &GenericArray::from_slice(&nonce),
-                                buffer,
+                                auth_enc_part,
                                 &mut [],
                             ),
-                            SecurityLevel::ENCMIC32 => aead.encrypt_in_place_detached(
+                            SecurityLevel::ENCMIC64 => aead.encrypt_in_place_detached(
                                 &GenericArray::from_slice(&nonce),
                                 &mut [],
-                                buffer,
+                                auth_enc_part,
                             ),
                             _ => {
                                 panic!("Impossible")
                             }
                         };
                         if let Ok(tag) = tag {
-                            if let Err(_) = buffer.write(offset, tag.as_slice()) {
-                                return Err(SecurityError::WriteError);
+                            if let Err(e) = buffer.write(offset, tag.as_slice()) {
+                                return Err(SecurityError::WriteError(e));
                             }
                         } else {
                             return Err(SecurityError::TransformationError);
@@ -383,24 +391,27 @@ where
                     }
                     SecurityLevel::MIC128 | SecurityLevel::ENCMIC128 => {
                         let aead = Ccm::<AEADBLKCIPH, U16, U13>::new(&key);
+
+                        let auth_enc_part = &mut buffer[aux_sec_header_len + 1..*offset];
+
                         let tag = match sec_l {
-                            SecurityLevel::MIC32 => aead.encrypt_in_place_detached(
+                            SecurityLevel::MIC128 => aead.encrypt_in_place_detached(
                                 &GenericArray::from_slice(&nonce),
-                                buffer,
+                                auth_enc_part,
                                 &mut [],
                             ),
-                            SecurityLevel::ENCMIC32 => aead.encrypt_in_place_detached(
+                            SecurityLevel::ENCMIC128 => aead.encrypt_in_place_detached(
                                 &GenericArray::from_slice(&nonce),
                                 &mut [],
-                                buffer,
+                                auth_enc_part,
                             ),
                             _ => {
                                 panic!("Impossible")
                             }
                         };
                         if let Ok(tag) = tag {
-                            if let Err(_) = buffer.write(offset, tag.as_slice()) {
-                                return Err(SecurityError::WriteError);
+                            if let Err(e) = buffer.write(offset, tag.as_slice()) {
+                                return Err(SecurityError::WriteError(e));
                             }
                         } else {
                             return Err(SecurityError::TransformationError);
@@ -435,10 +446,10 @@ where
 fn unsecure_frame<'a, AEADBLKCIPH, KEYDESCLO, DEVDESCLO>(
     frame: &mut Frame<'a>,
     offset: &mut usize,
-    mut buffer: &'a mut [u8],
+    buffer: &'a mut [u8],
     context: &mut SecurityContext<AEADBLKCIPH, KEYDESCLO>,
     footer_mode: FooterMode,
-    dev_desc_lo: DEVDESCLO,
+    dev_desc_lo: &mut DEVDESCLO,
 ) -> Result<(), SecurityError>
 where
     AEADBLKCIPH: NewBlockCipher + BlockCipher<BlockSize = U16>,
@@ -470,6 +481,7 @@ where
                 }
             }
         };
+
         // 7.2.3b
         if header.version == FrameVersion::Ieee802154_2003 {
             return Err(SecurityError::UnsupportedLegacy);
@@ -501,8 +513,9 @@ where
                     }
 
                     let buffer_len = buffer.len();
-                    let aead_slice = match footer_mode {
-                        FooterMode::None => &mut buffer,
+
+                    let buffer_slice = match footer_mode {
+                        FooterMode::None => &mut buffer[*offset..],
                         FooterMode::Explicit => &mut buffer[*offset..buffer_len - 2],
                     };
 
@@ -518,23 +531,25 @@ where
                             let taglen = sec_l.get_mic_octet_count() as usize;
 
                             // Copy the tag out of the aead slice
-                            let aead_len = aead_slice.len();
+                            let buffer_len = buffer_slice.len();
                             let tag = GenericArray::from_slice(
-                                &aead_slice[aead_len - taglen - 1..aead_len - 1],
+                                &buffer_slice[buffer_len - taglen..buffer_len],
                             )
                             .clone();
+
+                            let auth_enc_part = &mut buffer_slice[..buffer_len - taglen];
 
                             let verify = match sec_l {
                                 SecurityLevel::MIC32 => aead.decrypt_in_place_detached(
                                     &GenericArray::from_slice(&nonce),
-                                    &mut aead_slice[..aead_len],
+                                    auth_enc_part,
                                     &mut [],
                                     &tag,
                                 ),
                                 SecurityLevel::ENCMIC32 => aead.decrypt_in_place_detached(
                                     &GenericArray::from_slice(&nonce),
                                     &mut [],
-                                    aead_slice,
+                                    auth_enc_part,
                                     &tag,
                                 ),
                                 _ => {
@@ -542,91 +557,13 @@ where
                                 }
                             };
                             if let Ok(_) = verify {
-                                if let Ok(payload) =
-                                    buffer.read_with(offset, Bytes::Len(buffer.len() - taglen))
-                                {
-                                    frame.payload = payload;
-                                }
+                                frame.payload = auth_enc_part;
                             } else {
                                 return Err(SecurityError::TransformationError);
                             }
                         }
-                        SecurityLevel::MIC64 | SecurityLevel::ENCMIC64 => {
-                            let aead = Ccm::<AEADBLKCIPH, U8, U13>::new(&key);
-                            let taglen = sec_l.get_mic_octet_count() as usize;
-
-                            // Copy the tag out of the aead slice
-                            let aead_len = aead_slice.len();
-                            let tag = GenericArray::from_slice(
-                                &aead_slice[aead_len - taglen - 1..aead_len - 1],
-                            )
-                            .clone();
-
-                            let verify = match sec_l {
-                                SecurityLevel::MIC32 => aead.decrypt_in_place_detached(
-                                    &GenericArray::from_slice(&nonce),
-                                    &mut aead_slice[..aead_len],
-                                    &mut [],
-                                    &tag,
-                                ),
-                                SecurityLevel::ENCMIC32 => aead.decrypt_in_place_detached(
-                                    &GenericArray::from_slice(&nonce),
-                                    &mut [],
-                                    aead_slice,
-                                    &tag,
-                                ),
-                                _ => {
-                                    panic!("Impossible")
-                                }
-                            };
-                            if let Ok(_) = verify {
-                                if let Ok(payload) =
-                                    buffer.read_with(offset, Bytes::Len(buffer.len() - taglen))
-                                {
-                                    frame.payload = payload;
-                                }
-                            } else {
-                                return Err(SecurityError::TransformationError);
-                            }
-                        }
-                        SecurityLevel::MIC128 | SecurityLevel::ENCMIC128 => {
-                            let aead = Ccm::<AEADBLKCIPH, U16, U13>::new(&key);
-                            let taglen = sec_l.get_mic_octet_count() as usize;
-
-                            // Copy the tag out of the aead slice
-                            let aead_len = aead_slice.len();
-                            let tag = GenericArray::from_slice(
-                                &aead_slice[aead_len - taglen - 1..aead_len - 1],
-                            )
-                            .clone();
-
-                            let verify = match sec_l {
-                                SecurityLevel::MIC32 => aead.decrypt_in_place_detached(
-                                    &GenericArray::from_slice(&nonce),
-                                    &mut aead_slice[..aead_len],
-                                    &mut [],
-                                    &tag,
-                                ),
-                                SecurityLevel::ENCMIC32 => aead.decrypt_in_place_detached(
-                                    &GenericArray::from_slice(&nonce),
-                                    &mut [],
-                                    aead_slice,
-                                    &tag,
-                                ),
-                                _ => {
-                                    panic!("Impossible")
-                                }
-                            };
-                            if let Ok(_) = verify {
-                                if let Ok(payload) =
-                                    buffer.read_with(offset, Bytes::Len(buffer.len() - taglen))
-                                {
-                                    frame.payload = payload;
-                                }
-                            } else {
-                                return Err(SecurityError::TransformationError);
-                            }
-                        }
+                        SecurityLevel::MIC64 | SecurityLevel::ENCMIC64 => {}
+                        SecurityLevel::MIC128 | SecurityLevel::ENCMIC128 => {}
                         #[allow(unreachable_patterns)]
                         _ => {}
                     };
@@ -648,6 +585,7 @@ where
 }
 
 /// Errors that can occur while performing security operations on frames
+#[derive(Debug, Copy, Clone)]
 pub enum SecurityError {
     /// Security is not enabled for this frame
     SecurityNotEnabled,
@@ -670,7 +608,7 @@ pub enum SecurityError {
     /// The security (CCM*) transformation could not be completed successfully
     TransformationError,
     /// Something went wrong while writing the frame's payload bytes to the buffer
-    WriteError,
+    WriteError(byte::Error),
     /// Something went wrong while writing a frame's tag to the buffer
     TagWriteError,
     /// When functionality that is not implemented is used
@@ -721,7 +659,7 @@ impl From<SecurityError> for byte::Error {
             SecurityError::SecurityNotEnabled => byte::Error::BadInput {
                 err: "SecurityNotEnabled",
             },
-            SecurityError::WriteError => byte::Error::BadInput { err: "WriteError" },
+            SecurityError::WriteError(e) => e,
             SecurityError::NotImplemented => byte::Error::BadInput {
                 err: "NotImplemented",
             },
@@ -749,42 +687,57 @@ impl From<SecurityError> for byte::Error {
 
 #[cfg(test)]
 mod tests {
+    extern crate aes_soft;
     extern crate ccm;
-    extern crate chacha20poly1305;
     use crate::mac::frame::header::*;
     use crate::mac::frame::security::{security_control::*, *};
     use crate::mac::frame::*;
     use crate::mac::{frame::frame_control::*, FooterMode};
-    use ccm::aead::generic_array::typenum::Unsigned;
-    use chacha20poly1305::ChaCha8Poly1305;
+    use aes_soft::Aes128;
+    use cipher::generic_array::typenum::Unsigned;
 
-    type KeySize = <ChaCha8Poly1305 as NewAead>::KeySize;
-    type NonceSize = <ChaCha8Poly1305 as AeadInPlace>::NonceSize;
     struct StaticKeyLookup();
 
-    impl KeyLookup<KeySize> for StaticKeyLookup {
+    impl KeyLookup<U16> for StaticKeyLookup {
         fn lookup_key(
             &self,
             _address_mode: AddressingMode,
             _key_identifier: Option<KeyIdentifier>,
             _device_address: Option<Address>,
-        ) -> Option<GenericArray<u8, KeySize>> {
+        ) -> Option<GenericArray<u8, U16>> {
             let mut key = GenericArray::default();
             key[0] = 0x01;
             key[2] = 0x02;
             key[3] = 0x03;
-            for i in 4..KeySize::to_usize() {
+            for i in 0..U16::to_usize() {
                 key[i] = 0x00;
             }
             Some(key)
         }
     }
+    struct BasicDevDescriptorLookup {
+        list: [DeviceDescriptor; 1],
+    }
+
+    impl BasicDevDescriptorLookup {
+        pub fn new(desc: DeviceDescriptor) -> Self {
+            Self { list: [desc] }
+        }
+    }
+
+    impl DeviceDescriptorLookup for BasicDevDescriptorLookup {
+        fn lookup_device(
+            &mut self,
+            _addressing_mode: AddressingMode,
+            _address: Address,
+        ) -> Option<&mut DeviceDescriptor> {
+            Some(&mut self.list[0])
+        }
+    }
 
     const STATIC_KEY_LOOKUP: StaticKeyLookup = StaticKeyLookup();
 
-    fn c8p1305_sec_ctx<'a>(
-        frame_counter: u32,
-    ) -> SecurityContext<'a, ChaCha8Poly1305, StaticKeyLookup> {
+    fn c8p1305_sec_ctx<'a>(frame_counter: u32) -> SecurityContext<'a, Aes128, StaticKeyLookup> {
         SecurityContext {
             frame_counter,
             key_provider: &STATIC_KEY_LOOKUP,
@@ -792,19 +745,26 @@ mod tests {
         }
     }
 
-    fn frame_serdes_ctx<'a>(
-        security_ctx: &'a mut SecurityContext<'a, ChaCha8Poly1305, StaticKeyLookup>,
-    ) -> FrameSerDesContext<'a, ChaCha8Poly1305, StaticKeyLookup> {
-        FrameSerDesContext {
-            security_ctx: Some(security_ctx),
-            footer_mode: FooterMode::None,
-        }
-    }
-
     fn get_frame<'a>(
         security: bool,
+        payload: &'a [u8],
         auxiliary_security_header: Option<AuxiliarySecurityHeader>,
+        send: bool,
     ) -> Frame<'a> {
+        let mut destination = Some(Address::Extended(
+            PanId(255),
+            ExtendedAddress(0xFFAAFFAAFFAAu64),
+        ));
+        let mut source = Some(Address::Extended(
+            PanId(511),
+            ExtendedAddress(0xAAFFAAFFAAFFu64),
+        ));
+        if send {
+            let backup = source.clone();
+            source = destination;
+            destination = backup;
+        }
+
         Frame {
             header: Header {
                 frame_type: FrameType::Data,
@@ -814,25 +774,19 @@ mod tests {
                 pan_id_compress: false,
                 version: FrameVersion::Ieee802154,
                 seq: 127,
-                destination: Some(Address::Extended(
-                    PanId(255),
-                    ExtendedAddress(0xFFAAFFAAFFAAu64),
-                )),
-                source: Some(Address::Extended(
-                    PanId(511),
-                    ExtendedAddress(0xAAFFAAFFAAFFu64),
-                )),
+                destination,
+                source,
                 auxiliary_security_header: auxiliary_security_header,
             },
             content: FrameContent::Data,
-            payload: &[0xAA, 0xBB, 0xCC, 0xDD, 0xFE, 0xDE],
+            payload,
             footer: [0x00, 0x00],
         }
     }
 
     #[test]
     fn encode_unsecured() {
-        let frame = get_frame(false, None);
+        let frame = get_frame(false, &[0xAA, 0xBB, 0xCC, 0xDD, 0xFE, 0xDE], None, true);
 
         let offset = &mut 0;
         let mut buf = [0u8; 127];
@@ -850,7 +804,7 @@ mod tests {
     fn encode_secured() {
         let aux_sec_header = Some(AuxiliarySecurityHeader {
             control: SecurityControl {
-                security_level: SecurityLevel::None,
+                security_level: SecurityLevel::MIC32,
                 key_id_mode: KeyIdentifierMode::None,
             },
             frame_counter: 1337,
@@ -859,13 +813,61 @@ mod tests {
                 key_index: 0,
             }),
         });
+        let aux_sec_len = aux_sec_header.unwrap().get_octet_size() as usize;
 
-        let frame = get_frame(true, aux_sec_header);
+        let plaintext_payload = &mut [0xFF, 0x00, 0xFF, 0x00, 0xFF, 0x00];
+        let plaintext_len = plaintext_payload.len();
 
-        let mut buf = [0u8; 127];
+        let frame = get_frame(true, plaintext_payload, aux_sec_header, true);
+
+        let mut storage = [0u8; 32];
+
+        let buf = &mut storage[..aux_sec_len + plaintext_len + 5];
+
         let mut sec_ctx = c8p1305_sec_ctx(1000);
-        let frame_serdes_ctx = frame_serdes_ctx(&mut sec_ctx);
-        let write_res = frame.try_write(&mut buf, frame_serdes_ctx);
-        assert!(write_res.is_ok());
+        let offset = &mut 0;
+        let write_res = security::secure_frame(frame, &mut sec_ctx, offset, buf);
+
+        match write_res {
+            Err(e) => {
+                assert!(false, "Failed to secure frame {:?}!", e);
+            }
+            _ => {}
+        }
+
+        let mut frame = get_frame(true, &[], aux_sec_header, false);
+
+        let device_desc = DeviceDescriptor {
+            address: Address::Extended(PanId(511), ExtendedAddress(0xAAFFAAFFAAFFu64)),
+            frame_counter: 999,
+            exempt: false,
+        };
+
+        let offset = &mut (aux_sec_len + 1);
+
+        let read_res = security::unsecure_frame(
+            &mut frame,
+            offset,
+            buf,
+            &mut sec_ctx,
+            FooterMode::None,
+            &mut BasicDevDescriptorLookup::new(device_desc),
+        );
+
+        match read_res {
+            Err(e) => match e {
+                SecurityError::WriteError(err) => {
+                    assert!(
+                        false,
+                        "Write error occured while unsecuring frame. {:?}",
+                        err
+                    );
+                }
+                _ => assert!(false, "Failed to unsecure frame {:?}! ", e),
+            },
+            _ => {}
+        }
+
+        assert_eq!(frame.payload, *plaintext_payload);
     }
 }

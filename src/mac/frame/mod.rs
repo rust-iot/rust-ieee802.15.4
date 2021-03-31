@@ -64,7 +64,7 @@ use self::security::{default::*, KeyLookup, SecurityContext, SecurityError};
 ///     0x12, 0x34,             // payload
 /// ];
 ///
-/// let frame: Frame = bytes.read_with(&mut 0, FrameSerDesContext::no_security(FooterMode::Explicit)).unwrap();
+/// let frame: Frame = bytes.read_with(&mut 0, &mut FrameSerDesContext::no_security(FooterMode::Explicit)).unwrap();
 /// let header = frame.header;
 ///
 /// assert_eq!(frame.header.seq,       0x00);
@@ -133,7 +133,7 @@ use self::security::{default::*, KeyLookup, SecurityContext, SecurityError};
 /// let mut bytes = [0u8; 32];
 /// let mut len = 0usize;
 ///
-/// bytes.write_with(&mut len, frame, FrameSerDesContext::no_security(FooterMode::Explicit)).unwrap();
+/// bytes.write_with(&mut len, frame, &mut FrameSerDesContext::no_security(FooterMode::Explicit)).unwrap();
 ///
 /// let expected_bytes = [
 ///     0x01, 0x98,             // frame control
@@ -180,7 +180,7 @@ where
     /// The footer mode to use when handling frames
     footer_mode: FooterMode,
     /// The security context for handling frames (if any)
-    security_ctx: Option<&'a mut SecurityContext<'a, AEADBLKCIPH, KEYDESCLO>>,
+    security_ctx: Option<SecurityContext<'a, AEADBLKCIPH, KEYDESCLO>>,
 }
 
 impl<'a, AEADBLKCIPH, KEYDESCLO> FrameSerDesContext<'a, AEADBLKCIPH, KEYDESCLO>
@@ -192,7 +192,7 @@ where
     /// and security context
     pub fn new(
         mode: FooterMode,
-        security_ctx: &'a mut SecurityContext<'a, AEADBLKCIPH, KEYDESCLO>,
+        security_ctx: SecurityContext<'a, AEADBLKCIPH, KEYDESCLO>,
     ) -> Self {
         FrameSerDesContext {
             footer_mode: mode,
@@ -212,7 +212,8 @@ impl FrameSerDesContext<'_, Unimplemented, Unimplemented> {
     }
 }
 
-impl<AEADBLKCIPH, KEYDESCLO> TryWrite<FrameSerDesContext<'_, AEADBLKCIPH, KEYDESCLO>> for Frame<'_>
+impl<AEADBLKCIPH, KEYDESCLO> TryWrite<&mut FrameSerDesContext<'_, AEADBLKCIPH, KEYDESCLO>>
+    for Frame<'_>
 where
     AEADBLKCIPH: NewBlockCipher + BlockCipher<BlockSize = U16>,
     KEYDESCLO: KeyLookup<AEADBLKCIPH::KeySize>,
@@ -220,9 +221,9 @@ where
     fn try_write(
         self,
         bytes: &mut [u8],
-        context: FrameSerDesContext<AEADBLKCIPH, KEYDESCLO>,
+        context: &mut FrameSerDesContext<AEADBLKCIPH, KEYDESCLO>,
     ) -> byte::Result<usize> {
-        let mode = context.footer_mode;
+        let mode = &context.footer_mode;
         let offset = &mut 0;
 
         if self.header.security && context.security_ctx.is_none() {
@@ -234,7 +235,7 @@ where
 
         let mut security_enabled = false;
 
-        if let Some(ctx) = context.security_ctx {
+        if let Some(ctx) = context.security_ctx.as_mut() {
             let write_secured = security::secure_frame(self, ctx, offset, bytes);
             match write_secured {
                 Ok(_) => security_enabled = true,
@@ -257,7 +258,7 @@ where
     }
 }
 
-impl<'a, AEADBLKCIPH, KEYDESCLO> TryRead<'a, FrameSerDesContext<'_, AEADBLKCIPH, KEYDESCLO>>
+impl<'a, AEADBLKCIPH, KEYDESCLO> TryRead<'a, &mut FrameSerDesContext<'_, AEADBLKCIPH, KEYDESCLO>>
     for Frame<'a>
 where
     AEADBLKCIPH: NewBlockCipher + BlockCipher<BlockSize = U16>,
@@ -265,9 +266,9 @@ where
 {
     fn try_read(
         bytes: &'a [u8],
-        context: FrameSerDesContext<AEADBLKCIPH, KEYDESCLO>,
+        context: &mut FrameSerDesContext<AEADBLKCIPH, KEYDESCLO>,
     ) -> byte::Result<(Self, usize)> {
-        let mode = context.footer_mode;
+        let mode = &context.footer_mode;
         let offset = &mut 0;
         let header = bytes.read(offset)?;
         let content = bytes.read_with(offset, &header)?;
@@ -461,7 +462,10 @@ mod tests {
         ];
 
         let frame: Frame = data
-            .read_with(&mut 0, FrameSerDesContext::no_security(FooterMode::None))
+            .read_with(
+                &mut 0,
+                &mut FrameSerDesContext::no_security(FooterMode::None),
+            )
             .unwrap();
         let hdr = frame.header;
         assert_eq!(hdr.frame_type, FrameType::Data);
@@ -486,8 +490,10 @@ mod tests {
         let data = [
             0x41, 0x80, 0x91, 0x8f, 0x20, 0xff, 0xff, 0x33, 0x44, 0x00, 0x00,
         ];
-        let frame =
-            data.read_with::<Frame>(&mut 0, FrameSerDesContext::no_security(FooterMode::None));
+        let frame = data.read_with::<Frame>(
+            &mut 0,
+            &mut FrameSerDesContext::no_security(FooterMode::None),
+        );
         assert!(frame.is_err());
         if let Err(e) = frame {
             assert_eq!(e, DecodeError::InvalidAddressMode(0).into())
@@ -501,7 +507,10 @@ mod tests {
             0x4a, 0xc2, 0xae, 0xaa, 0xbb, 0xcc,
         ];
         let frame: Frame = data
-            .read_with(&mut 0, FrameSerDesContext::no_security(FooterMode::None))
+            .read_with(
+                &mut 0,
+                &mut FrameSerDesContext::no_security(FooterMode::None),
+            )
             .unwrap();
         let hdr = frame.header;
         assert_eq!(hdr.frame_type, FrameType::Data);
@@ -548,7 +557,7 @@ mod tests {
         buf.write_with(
             &mut len,
             frame,
-            FrameSerDesContext::no_security(FooterMode::None),
+            &mut FrameSerDesContext::no_security(FooterMode::None),
         )
         .unwrap();
         assert_eq!(len, 13);
@@ -596,7 +605,7 @@ mod tests {
         buf.write_with(
             &mut len,
             frame,
-            FrameSerDesContext::no_security(FooterMode::None),
+            &mut FrameSerDesContext::no_security(FooterMode::None),
         )
         .unwrap();
         assert_eq!(len, 23);
@@ -636,7 +645,7 @@ mod tests {
         buf.write_with(
             &mut len,
             frame,
-            FrameSerDesContext::no_security(FooterMode::None),
+            &mut FrameSerDesContext::no_security(FooterMode::None),
         )
         .unwrap();
         assert_eq!(len, 15);
@@ -673,7 +682,7 @@ mod tests {
         buf.write_with(
             &mut len,
             frame,
-            FrameSerDesContext::no_security(FooterMode::None),
+            &mut FrameSerDesContext::no_security(FooterMode::None),
         )
         .unwrap();
         assert_eq!(len, 8);
