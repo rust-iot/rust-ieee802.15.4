@@ -236,7 +236,8 @@ where
         let mut security_enabled = false;
 
         if let Some(ctx) = context.security_ctx.as_mut() {
-            let write_secured = security::secure_frame(self, ctx, offset, bytes);
+            let write_secured =
+                security::secure_frame(self, ctx, context.footer_mode, offset, bytes);
             match write_secured {
                 Ok(_) => security_enabled = true,
                 Err(e) => match e {
@@ -306,6 +307,7 @@ where
 /// For now, only 1 and 3 are supported.
 ///
 /// [`Frame::try_write`](Frame::try_write)
+#[derive(Clone, Copy)]
 pub enum FooterMode {
     /// Don't read/write the footer
     None,

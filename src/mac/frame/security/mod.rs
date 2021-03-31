@@ -250,6 +250,7 @@ where
 pub fn secure_frame<'a, AEADBLKCIPH, KEYDESCLO>(
     frame: Frame<'_>,
     context: &mut SecurityContext<AEADBLKCIPH, KEYDESCLO>,
+    footer_mode: FooterMode,
     offset: &mut usize,
     buffer: &mut [u8],
 ) -> Result<(), SecurityError>
@@ -334,7 +335,12 @@ where
                     ($tag_size:ty, $mic:pat, $encmic:pat) => {
                         let aead = Ccm::<AEADBLKCIPH, $tag_size, U13>::new(&key);
 
-                        let auth_enc_part = &mut buffer[aux_sec_header_len + 1..*offset];
+                        let auth_enc_part = match footer_mode {
+                            FooterMode::None => &mut buffer[aux_sec_header_len + 1..*offset],
+                            FooterMode::Explicit => {
+                                &mut buffer[aux_sec_header_len + 1..*offset - 2]
+                            }
+                        };
 
                         let tag = match sec_l {
                             $mic => aead.encrypt_in_place_detached(
@@ -473,7 +479,7 @@ where
 
                     let buffer_len = buffer.len();
 
-                    let buffer_slice = match footer_mode {
+                    let data_and_tag = match footer_mode {
                         FooterMode::None => &mut buffer[*offset..],
                         FooterMode::Explicit => &mut buffer[*offset..buffer_len - 2],
                     };
@@ -486,13 +492,13 @@ where
                             let taglen = sec_l.get_mic_octet_size() as usize;
 
                             // Copy the tag out of the aead slice
-                            let buffer_len = buffer_slice.len();
+                            let buffer_len = data_and_tag.len();
                             let tag = GenericArray::from_slice(
-                                &buffer_slice[buffer_len - taglen..buffer_len],
+                                &data_and_tag[buffer_len - taglen..buffer_len],
                             )
                             .clone();
 
-                            let auth_enc_part = &mut buffer_slice[..buffer_len - taglen];
+                            let auth_enc_part = &mut data_and_tag[..buffer_len - taglen];
 
                             let verify = match sec_l {
                                 $mic => aead.decrypt_in_place_detached(
@@ -741,7 +747,7 @@ mod tests {
                 seq: 127,
                 destination,
                 source,
-                auxiliary_security_header: auxiliary_security_header,
+                auxiliary_security_header,
             },
             content: FrameContent::Data,
             payload,
@@ -793,7 +799,8 @@ mod tests {
 
             let mut sec_ctx = c8p1305_sec_ctx(1000);
             let offset = &mut 0;
-            let write_res = security::secure_frame(frame, &mut sec_ctx, offset, buf);
+            let write_res =
+                security::secure_frame(frame, &mut sec_ctx, FooterMode::None, offset, buf);
 
             match write_res {
                 Err(e) => {
@@ -861,7 +868,8 @@ mod tests {
         let offset = &mut 0;
         let mut buf = [0u8; 127];
         let mut sec_ctx = c8p1305_sec_ctx(1000);
-        let write_res = security::secure_frame(frame, &mut sec_ctx, offset, &mut buf);
+        let write_res =
+            security::secure_frame(frame, &mut sec_ctx, FooterMode::None, offset, &mut buf);
         if let Err(SecurityError::SecurityNotEnabled) = write_res {
         } else {
             assert!(
