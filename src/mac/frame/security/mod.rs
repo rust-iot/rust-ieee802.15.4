@@ -247,7 +247,7 @@ where
 /// Currently only supports the securing of Data frames with extended addresses
 ///
 /// Partial implementation of 7.2.1
-pub fn secure_frame<'a, AEADBLKCIPH, KEYDESCLO>(
+pub(crate) fn secure_frame<'a, AEADBLKCIPH, KEYDESCLO>(
     frame: Frame<'_>,
     context: &mut SecurityContext<AEADBLKCIPH, KEYDESCLO>,
     footer_mode: FooterMode,
@@ -408,7 +408,7 @@ where
 ///
 /// Partial implementation of 7.2.3
 /// Currently not implemented: 7.2.3h, 7.2.3i, 7.2.3j, 7.2.3k, 7.2.3n
-pub fn unsecure_frame<'a, AEADBLKCIPH, KEYDESCLO, DEVDESCLO>(
+pub(crate) fn unsecure_frame<'a, AEADBLKCIPH, KEYDESCLO, DEVDESCLO>(
     header: &Header,
     buffer: &mut [u8],
     offset: &mut usize,

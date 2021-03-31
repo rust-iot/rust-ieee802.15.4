@@ -1,11 +1,11 @@
-Supporting security on MAC layer is impossible due to immutability of `Frame::payload`
+Supporting security on MAC layer with current interface is unworkable.
 
 # The problem
-I'm trying to implement the security features specified by the 802.15.4 standard. Implementing the features by themselves and encrypting outgoing frames
-is working as expected, but I've run into a roadblock when it comes to decrypting incoming frames. You can find the (unfinished) progress [here](https://gitlab.com/datdenkikniet/rust-ieee802154/-/tree/security_features).
+I'm implementing the security features specified by the 802.15.4 standard. Implementing the features by themselves and encrypting outgoing frames
+is working as expected, but I've run into a bit of a roadblock when it comes to decrypting incoming frames. You can find the progress [here](https://gitlab.com/datdenkikniet/rust-ieee802154/-/tree/security_features).
 
-Because `Frame::payload` is immutable, we cannot perform in-place unsecuring of the payload, and because it is a reference, we can't create a copy of the secured data, unsecure it, and reassign the payload. 
+Because `TryRead::try_read` only takes an immutable buffer, we can't perform in-place unsecuring of the payload, and because it is a reference in `Frame`, we can't create a copy of the secured data, unsecure it, and reassign the payload. 
 
-Moving the calling responsibility of the unsecuring operation to a higher layer is also very difficult, as `TryRead` constrains the kind of Error we can return. Even if that would be possible, the issue of immutability still prevents that higher layer from performing the unsecuring in-place.
+In my solution, I've implemented `Frame::try_read_with_unsecure` that takes an `&mut [u8]` instead. It works fine, but doesn't fit into the current interface super nicely. 
 
 # Possible solutions

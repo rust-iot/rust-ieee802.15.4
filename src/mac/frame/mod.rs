@@ -263,11 +263,10 @@ where
 }
 
 impl<'a> Frame<'a> {
-    /// 
+    ///
     pub fn try_read_and_unsecure<AEADBLKCIPH, KEYDESCLO, DEVDESCLO>(
         buf: &'a mut [u8],
-        mode: FooterMode,
-        sec_ctx: &mut SecurityContext<AEADBLKCIPH, KEYDESCLO>,
+        ctx: &mut FrameSerDesContext<'_, AEADBLKCIPH, KEYDESCLO>,
         dev_desc_lo: &mut DEVDESCLO,
     ) -> Result<Frame<'a>, SecurityError>
     where
@@ -276,38 +275,56 @@ impl<'a> Frame<'a> {
         DEVDESCLO: DeviceDescriptorLookup,
     {
         let offset = &mut 0;
-        let header = buf.read(offset)?;
+        let header: Header = buf.read(offset)?;
+
         let content = buf.read_with(offset, &header)?;
 
-        match mode {
-            FooterMode::None => {}
-            FooterMode::Explicit => {
-                unimplemented!();
-            }
-        };
+        if let Some(sec_ctx) = ctx.security_ctx.as_mut() {
+            let tag_size = match security::unsecure_frame(
+                &header,
+                buf,
+                offset,
+                sec_ctx,
+                ctx.footer_mode,
+                dev_desc_lo,
+            ) {
+                Ok(size) => size,
+                Err(e) => match e {
+                    SecurityError::SecurityNotEnabled => 0,
+                    _ => return Err(e),
+                },
+            };
+            let payload = buf.read_with(offset, Bytes::Len(buf.len() - *offset - tag_size))?;
 
-        let tag_size = security::unsecure_frame(&header, buf, offset, sec_ctx, mode, dev_desc_lo)?;
+            let frame = Frame {
+                header,
+                content,
+                payload,
+                footer: [0, 0],
+            };
 
-        let payload = buf.read_with(offset, Bytes::Len(buf.len() - *offset - tag_size))?;
-
-        let frame = Frame {
-            header,
-            content,
-            payload,
-            footer: [0, 0],
-        };
-
-        Ok(frame)
+            Ok(frame)
+        } else {
+            return Err(SecurityError::InvalidSecContext);
+        }
     }
 }
 
 impl<'a> TryRead<'a, FooterMode> for Frame<'a> {
+    /// Try to read a frame
+    ///
+    /// Frames that have security enabled can not be processed by this function, and an
+    /// error will be returned if the frame contained in `bytes` does have it enabled.
+    ///
+    /// If you expect to receive secured frames, use [`Frame::try_read_with_unsecure`] instead.
     fn try_read(bytes: &'a [u8], mode: FooterMode) -> byte::Result<(Self, usize)> {
         let offset = &mut 0;
         let header: Header = bytes.read(offset)?;
         let content = bytes.read_with(offset, &header)?;
 
-        if header.security {}
+        if header.security {
+            return Err(DecodeError::SecurityEnabled)?;
+        }
 
         let (payload, footer) = match mode {
             FooterMode::None => (
@@ -404,8 +421,8 @@ pub enum DecodeError {
     /// The frame type is invalid
     InvalidFrameType(u8),
 
-    /// The frame has the security bit set, which is not supported
-    SecurityNotSupported,
+    /// Security is enabled on the frame, and `try_read` is called. [`Frame::try_read_with_unsecure`] should be called instead.
+    SecurityEnabled,
 
     /// The frame's address mode is invalid
     InvalidAddressMode(u8),
@@ -436,9 +453,6 @@ impl From<DecodeError> for byte::Error {
             DecodeError::InvalidFrameType(_) => byte::Error::BadInput {
                 err: "InvalidFrameType",
             },
-            DecodeError::SecurityNotSupported => byte::Error::BadInput {
-                err: "SecurityNotSupported",
-            },
             DecodeError::InvalidAddressMode(_) => byte::Error::BadInput {
                 err: "InvalidAddressMode",
             },
@@ -459,6 +473,9 @@ impl From<DecodeError> for byte::Error {
             },
             DecodeError::AuxSecHeaderAbsent => byte::Error::BadInput {
                 err: "AuxSecHeaderAbsent",
+            },
+            DecodeError::SecurityEnabled => byte::Error::BadInput {
+                err: "SecurityEnabled (use Frame::try_read_with_unsecure)",
             },
         }
     }
