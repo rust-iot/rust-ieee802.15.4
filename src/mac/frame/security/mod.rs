@@ -408,10 +408,9 @@ where
 ///
 /// Partial implementation of 7.2.3
 /// Currently not implemented: 7.2.3h, 7.2.3i, 7.2.3j, 7.2.3k, 7.2.3n
-fn unsecure_frame<'a, AEADBLKCIPH, KEYDESCLO, DEVDESCLO>(
+pub fn unsecure_frame<'a, AEADBLKCIPH, KEYDESCLO, DEVDESCLO>(
     frame: &mut Frame<'a>,
     offset: &mut usize,
-    buffer: &'a mut [u8],
     context: &mut SecurityContext<AEADBLKCIPH, KEYDESCLO>,
     footer_mode: FooterMode,
     dev_desc_lo: &mut DEVDESCLO,
@@ -477,6 +476,7 @@ where
                         return Err(SecurityError::CounterError);
                     }
 
+                    let buffer = frame.payload;
                     let buffer_len = buffer.len();
 
                     let data_and_tag = match footer_mode {
@@ -829,7 +829,6 @@ mod tests {
             let read_res = security::unsecure_frame(
                 &mut frame,
                 offset,
-                buf,
                 &mut sec_ctx,
                 FooterMode::None,
                 &mut BasicDevDescriptorLookup::new(device_desc),

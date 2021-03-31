@@ -7,7 +7,7 @@ use ccm::aead::generic_array::{
 };
 use cipher::{BlockCipher, NewBlockCipher};
 
-use super::KeyLookup;
+use super::{DeviceDescriptorLookup, KeyLookup};
 
 /// A struct that fullfills all of the type checks, but is not actually capable of
 /// performing any of the operations
@@ -39,5 +39,15 @@ impl NewBlockCipher for Unimplemented {
 
     fn new(_key: &cipher::block::Key<Self>) -> Self {
         Unimplemented {}
+    }
+}
+
+impl DeviceDescriptorLookup for Unimplemented {
+    fn lookup_device(
+        &mut self,
+        _addressing_mode: super::AddressingMode,
+        _address: crate::mac::Address,
+    ) -> Option<&mut super::DeviceDescriptor> {
+        None
     }
 }

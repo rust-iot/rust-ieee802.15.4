@@ -24,7 +24,9 @@ use header::FrameType;
 pub use header::Header;
 pub use security::AuxiliarySecurityHeader;
 
-use self::security::{default::*, KeyLookup, SecurityContext, SecurityError};
+use self::security::{
+    default::*, DeviceDescriptorLookup, KeyLookup, SecurityContext, SecurityError,
+};
 
 /// An IEEE 802.15.4 MAC frame
 ///
@@ -148,7 +150,7 @@ use self::security::{default::*, KeyLookup, SecurityContext, SecurityError};
 ///
 /// [decode]: #method.try_read
 /// [encode]: #method.try_write
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
 pub struct Frame<'p> {
     /// Header
     pub header: Header,
@@ -248,31 +250,44 @@ where
         }
 
         if !security_enabled {
-            bytes.write(offset, self.payload)?;
+            bytes.write(offset, self.payload.as_ref())?;
         }
 
         match mode {
             FooterMode::None => {}
+            // TODO: recalculate the footer after encryption?
             FooterMode::Explicit => bytes.write(offset, &self.footer[..])?,
         }
         Ok(*offset)
     }
 }
 
-impl<'a, AEADBLKCIPH, KEYDESCLO> TryRead<'a, &mut FrameSerDesContext<'_, AEADBLKCIPH, KEYDESCLO>>
-    for Frame<'a>
+impl<'a, AEADBLKCIPH, KEYDESCLO, DEVDESCLO>
+    TryRead<
+        'a,
+        (
+            &mut FrameSerDesContext<'_, AEADBLKCIPH, KEYDESCLO>,
+            &mut DEVDESCLO,
+        ),
+    > for Frame<'a>
 where
     AEADBLKCIPH: NewBlockCipher + BlockCipher<BlockSize = U16>,
     KEYDESCLO: KeyLookup<AEADBLKCIPH::KeySize>,
+    DEVDESCLO: DeviceDescriptorLookup,
 {
     fn try_read(
         bytes: &'a [u8],
-        context: &mut FrameSerDesContext<AEADBLKCIPH, KEYDESCLO>,
+        context: (
+            &mut FrameSerDesContext<AEADBLKCIPH, KEYDESCLO>,
+            &mut DEVDESCLO,
+        ),
     ) -> byte::Result<(Self, usize)> {
+        let (context, device_lookup) = context;
         let mode = &context.footer_mode;
         let offset = &mut 0;
         let header = bytes.read(offset)?;
         let content = bytes.read_with(offset, &header)?;
+
         let (payload, footer) = match mode {
             FooterMode::None => (
                 bytes.read_with(offset, Bytes::Len(bytes.len() - *offset))?,
@@ -284,15 +299,31 @@ where
             ),
         };
 
-        Ok((
-            Frame {
-                header: header,
-                content: content,
-                payload,
-                footer: footer.to_le_bytes(),
-            },
-            *offset,
-        ))
+        let mut frame = Frame {
+            header,
+            content,
+            payload,
+            footer: footer.to_le_bytes(),
+        };
+
+        if header.security {
+            match context.security_ctx.as_mut() {
+                Some(sec_ctx) => {
+                    let unsecured_frame =
+                        security::unsecure_frame(&mut frame, offset, sec_ctx, *mode, device_lookup);
+                    match unsecured_frame {
+                        Err(e) => match e {
+                            SecurityError::SecurityNotEnabled => {}
+                            _ => return Err(e)?,
+                        },
+                        _ => {}
+                    }
+                }
+                None => return Err(DecodeError::MissingSecurityCtx)?,
+            }
+        }
+
+        Ok((frame, *offset))
     }
 }
 
@@ -385,8 +416,8 @@ pub enum DecodeError {
     /// The auxiliary security header's key identifier mode is invalid
     InvalidKeyIdentifierMode(u8),
 
-    /// Security is disabled, but an Auxiliary Security Header is set
-    SecurityNotEnabled,
+    /// Security is enabled, but no Securty Context is provided
+    MissingSecurityCtx,
 
     /// Security is enabled, but no Auxiliary Security Header is present
     AuxSecHeaderAbsent,
@@ -420,8 +451,8 @@ impl From<DecodeError> for byte::Error {
             DecodeError::InvalidKeyIdentifierMode(_) => byte::Error::BadInput {
                 err: "InvalidKeyIdentifierMode",
             },
-            DecodeError::SecurityNotEnabled => byte::Error::BadInput {
-                err: "SecurityNotEnabled",
+            DecodeError::MissingSecurityCtx => byte::Error::BadInput {
+                err: "MissingSecurityCtx",
             },
             DecodeError::AuxSecHeaderAbsent => byte::Error::BadInput {
                 err: "AuxSecHeaderAbsent",
@@ -466,7 +497,10 @@ mod tests {
         let frame: Frame = data
             .read_with(
                 &mut 0,
-                &mut FrameSerDesContext::no_security(FooterMode::None),
+                (
+                    &mut FrameSerDesContext::no_security(FooterMode::None),
+                    &mut Unimplemented {},
+                ),
             )
             .unwrap();
         let hdr = frame.header;
@@ -494,7 +528,10 @@ mod tests {
         ];
         let frame = data.read_with::<Frame>(
             &mut 0,
-            &mut FrameSerDesContext::no_security(FooterMode::None),
+            (
+                &mut FrameSerDesContext::no_security(FooterMode::None),
+                &mut Unimplemented {},
+            ),
         );
         assert!(frame.is_err());
         if let Err(e) = frame {
@@ -511,7 +548,10 @@ mod tests {
         let frame: Frame = data
             .read_with(
                 &mut 0,
-                &mut FrameSerDesContext::no_security(FooterMode::None),
+                (
+                    &mut FrameSerDesContext::no_security(FooterMode::None),
+                    &mut Unimplemented {},
+                ),
             )
             .unwrap();
         let hdr = frame.header;
