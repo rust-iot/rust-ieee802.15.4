@@ -26,3 +26,4 @@ ccm = {version = "0.3.0", default-features = false}
 
 [dev-dependencies]
 aes-soft = {version = "0.6.4", default-features = false}
+rand = "0.8.3"

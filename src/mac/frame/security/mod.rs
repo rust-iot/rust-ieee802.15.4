@@ -658,12 +658,14 @@ impl From<SecurityError> for byte::Error {
 mod tests {
     extern crate aes_soft;
     extern crate ccm;
+    extern crate rand;
     use crate::mac::frame::header::*;
     use crate::mac::frame::security::{security_control::*, *};
     use crate::mac::frame::*;
     use crate::mac::{frame::frame_control::*, FooterMode};
     use aes_soft::Aes128;
     use cipher::generic_array::typenum::Unsigned;
+    use rand::Rng;
 
     struct StaticKeyLookup();
 
@@ -715,19 +717,13 @@ mod tests {
     }
 
     fn get_frame<'a>(
+        mut source: Option<Address>,
+        mut destination: Option<Address>,
         security: bool,
         payload: &'a [u8],
         auxiliary_security_header: Option<AuxiliarySecurityHeader>,
         send: bool,
     ) -> Frame<'a> {
-        let mut destination = Some(Address::Extended(
-            PanId(255),
-            ExtendedAddress(0xFFAAFFAAFFAAu64),
-        ));
-        let mut source = Some(Address::Extended(
-            PanId(511),
-            ExtendedAddress(0xAAFFAAFFAAFFu64),
-        ));
         if send {
             let backup = source.clone();
             source = destination;
@@ -753,8 +749,18 @@ mod tests {
         }
     }
 
+    fn get_rand_addrpair() -> (Address, Address) {
+        let src_u64 = rand::thread_rng().gen();
+        let dest_u64 = rand::thread_rng().gen();
+        let source = Address::Extended(PanId(511), ExtendedAddress(dest_u64));
+        let destination = Address::Extended(PanId(255), ExtendedAddress(src_u64));
+        (source, destination)
+    }
+
     macro_rules! test_security_level {
         ($level:expr) => {
+            let (source, destination) = get_rand_addrpair();
+
             let aux_sec_header = Some(AuxiliarySecurityHeader {
                 control: SecurityControl {
                     security_level: $level,
@@ -771,7 +777,14 @@ mod tests {
             let plaintext_payload = &mut [0xFF, 0x00, 0xFF, 0x00, 0xFF, 0x00];
             let plaintext_len = plaintext_payload.len();
 
-            let frame = get_frame(true, plaintext_payload, aux_sec_header, true);
+            let frame = get_frame(
+                Some(source),
+                Some(destination),
+                true,
+                plaintext_payload,
+                aux_sec_header,
+                true,
+            );
 
             let mut storage = [0u8; 64];
 
@@ -789,9 +802,14 @@ mod tests {
                 _ => {}
             }
 
-            assert!(false, "{:?}", buf);
-
-            let mut frame = get_frame(true, &[], aux_sec_header, false);
+            let mut frame = get_frame(
+                Some(source),
+                Some(destination),
+                true,
+                &[],
+                aux_sec_header,
+                false,
+            );
 
             let device_desc = DeviceDescriptor {
                 address: Address::Extended(PanId(511), ExtendedAddress(0xAAFFAAFFAAFFu64)),
@@ -830,7 +848,15 @@ mod tests {
 
     #[test]
     fn encode_unsecured() {
-        let frame = get_frame(false, &[0xAA, 0xBB, 0xCC, 0xDD, 0xFE, 0xDE], None, true);
+        let (source, destination) = get_rand_addrpair();
+        let frame = get_frame(
+            Some(source),
+            Some(destination),
+            false,
+            &[0xAA, 0xBB, 0xCC, 0xDD, 0xFE, 0xDE],
+            None,
+            true,
+        );
 
         let offset = &mut 0;
         let mut buf = [0u8; 127];
