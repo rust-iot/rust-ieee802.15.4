@@ -66,7 +66,7 @@ use self::security::{
 ///     0x12, 0x34,             // payload
 /// ];
 ///
-/// let frame: Frame = bytes.read_with(&mut 0, &mut FrameSerDesContext::no_security(FooterMode::Explicit)).unwrap();
+/// let frame: Frame = bytes.read_with(&mut 0, FooterMode::Explicit).unwrap();
 /// let header = frame.header;
 ///
 /// assert_eq!(frame.header.seq,       0x00);
@@ -262,31 +262,52 @@ where
     }
 }
 
-impl<'a, AEADBLKCIPH, KEYDESCLO, DEVDESCLO>
-    TryRead<
-        'a,
-        (
-            &mut FrameSerDesContext<'_, AEADBLKCIPH, KEYDESCLO>,
-            &mut DEVDESCLO,
-        ),
-    > for Frame<'a>
-where
-    AEADBLKCIPH: NewBlockCipher + BlockCipher<BlockSize = U16>,
-    KEYDESCLO: KeyLookup<AEADBLKCIPH::KeySize>,
-    DEVDESCLO: DeviceDescriptorLookup,
-{
-    fn try_read(
-        bytes: &'a [u8],
-        context: (
-            &mut FrameSerDesContext<AEADBLKCIPH, KEYDESCLO>,
-            &mut DEVDESCLO,
-        ),
-    ) -> byte::Result<(Self, usize)> {
-        let (context, device_lookup) = context;
-        let mode = &context.footer_mode;
+impl<'a> Frame<'a> {
+    /// 
+    pub fn try_read_and_unsecure<AEADBLKCIPH, KEYDESCLO, DEVDESCLO>(
+        buf: &'a mut [u8],
+        mode: FooterMode,
+        sec_ctx: &mut SecurityContext<AEADBLKCIPH, KEYDESCLO>,
+        dev_desc_lo: &mut DEVDESCLO,
+    ) -> Result<Frame<'a>, SecurityError>
+    where
+        AEADBLKCIPH: NewBlockCipher + BlockCipher<BlockSize = U16>,
+        KEYDESCLO: KeyLookup<AEADBLKCIPH::KeySize>,
+        DEVDESCLO: DeviceDescriptorLookup,
+    {
         let offset = &mut 0;
-        let header = bytes.read(offset)?;
+        let header = buf.read(offset)?;
+        let content = buf.read_with(offset, &header)?;
+
+        match mode {
+            FooterMode::None => {}
+            FooterMode::Explicit => {
+                unimplemented!();
+            }
+        };
+
+        let tag_size = security::unsecure_frame(&header, buf, offset, sec_ctx, mode, dev_desc_lo)?;
+
+        let payload = buf.read_with(offset, Bytes::Len(buf.len() - *offset - tag_size))?;
+
+        let frame = Frame {
+            header,
+            content,
+            payload,
+            footer: [0, 0],
+        };
+
+        Ok(frame)
+    }
+}
+
+impl<'a> TryRead<'a, FooterMode> for Frame<'a> {
+    fn try_read(bytes: &'a [u8], mode: FooterMode) -> byte::Result<(Self, usize)> {
+        let offset = &mut 0;
+        let header: Header = bytes.read(offset)?;
         let content = bytes.read_with(offset, &header)?;
+
+        if header.security {}
 
         let (payload, footer) = match mode {
             FooterMode::None => (
@@ -299,30 +320,12 @@ where
             ),
         };
 
-        let mut frame = Frame {
+        let frame = Frame {
             header,
             content,
             payload,
             footer: footer.to_le_bytes(),
         };
-
-        if header.security {
-            match context.security_ctx.as_mut() {
-                Some(sec_ctx) => {
-                    let unsecured_frame =
-                        security::unsecure_frame(&mut frame, offset, sec_ctx, *mode, device_lookup);
-                    match unsecured_frame {
-                        Err(e) => match e {
-                            SecurityError::SecurityNotEnabled => {}
-                            _ => return Err(e)?,
-                        },
-                        _ => {}
-                    }
-                }
-                None => return Err(DecodeError::MissingSecurityCtx)?,
-            }
-        }
-
         Ok((frame, *offset))
     }
 }
@@ -494,15 +497,7 @@ mod tests {
             0x41, 0x88, 0x91, 0x8f, 0x20, 0xff, 0xff, 0x33, 0x44, 0x00, 0x00,
         ];
 
-        let frame: Frame = data
-            .read_with(
-                &mut 0,
-                (
-                    &mut FrameSerDesContext::no_security(FooterMode::None),
-                    &mut Unimplemented {},
-                ),
-            )
-            .unwrap();
+        let frame: Frame = data.read_with(&mut 0, FooterMode::None).unwrap();
         let hdr = frame.header;
         assert_eq!(hdr.frame_type, FrameType::Data);
         assert_eq!(hdr.security, false);
@@ -526,13 +521,7 @@ mod tests {
         let data = [
             0x41, 0x80, 0x91, 0x8f, 0x20, 0xff, 0xff, 0x33, 0x44, 0x00, 0x00,
         ];
-        let frame = data.read_with::<Frame>(
-            &mut 0,
-            (
-                &mut FrameSerDesContext::no_security(FooterMode::None),
-                &mut Unimplemented {},
-            ),
-        );
+        let frame = data.read_with::<Frame>(&mut 0, FooterMode::None);
         assert!(frame.is_err());
         if let Err(e) = frame {
             assert_eq!(e, DecodeError::InvalidAddressMode(0).into())
@@ -545,15 +534,7 @@ mod tests {
             0x21, 0xc8, 0x8b, 0xff, 0xff, 0x02, 0x00, 0x23, 0x00, 0x60, 0xe2, 0x16, 0x21, 0x1c,
             0x4a, 0xc2, 0xae, 0xaa, 0xbb, 0xcc,
         ];
-        let frame: Frame = data
-            .read_with(
-                &mut 0,
-                (
-                    &mut FrameSerDesContext::no_security(FooterMode::None),
-                    &mut Unimplemented {},
-                ),
-            )
-            .unwrap();
+        let frame: Frame = data.read_with(&mut 0, FooterMode::None).unwrap();
         let hdr = frame.header;
         assert_eq!(hdr.frame_type, FrameType::Data);
         assert_eq!(hdr.security, false);

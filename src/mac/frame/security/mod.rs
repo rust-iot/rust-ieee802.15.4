@@ -20,7 +20,7 @@ use cipher::{BlockCipher, NewBlockCipher};
 
 use crate::mac::{Address, FrameType, FrameVersion};
 
-use super::{FooterMode, Frame};
+use super::{FooterMode, Frame, Header};
 
 pub(crate) mod default;
 mod security_control;
@@ -409,19 +409,21 @@ where
 /// Partial implementation of 7.2.3
 /// Currently not implemented: 7.2.3h, 7.2.3i, 7.2.3j, 7.2.3k, 7.2.3n
 pub fn unsecure_frame<'a, AEADBLKCIPH, KEYDESCLO, DEVDESCLO>(
-    frame: &mut Frame<'a>,
+    header: &Header,
+    buffer: &mut [u8],
     offset: &mut usize,
     context: &mut SecurityContext<AEADBLKCIPH, KEYDESCLO>,
     footer_mode: FooterMode,
     dev_desc_lo: &mut DEVDESCLO,
-) -> Result<(), SecurityError>
+) -> Result<usize, SecurityError>
 where
     AEADBLKCIPH: NewBlockCipher + BlockCipher<BlockSize = U16>,
     KEYDESCLO: KeyLookup<AEADBLKCIPH::KeySize>,
     DEVDESCLO: DeviceDescriptorLookup,
 {
-    let header = frame.header;
     if header.security {
+        let buflen = buffer.len();
+
         let source = match header.source {
             Some(addr) => addr,
             _ => return Err(SecurityError::NoDestinationAddress),
@@ -461,6 +463,7 @@ where
             return Err(SecurityError::UnsupportedSecurity);
         }
 
+        let mut taglen = 0;
         // 7.2.3f
         if let Some(key) = context.key_provider.lookup_key(
             AddressingMode::SrcAddrMode,
@@ -476,20 +479,17 @@ where
                         return Err(SecurityError::CounterError);
                     }
 
-                    let buffer = frame.payload;
                     let buffer_len = buffer.len();
-
                     let data_and_tag = match footer_mode {
                         FooterMode::None => &mut buffer[*offset..],
                         FooterMode::Explicit => &mut buffer[*offset..buffer_len - 2],
                     };
 
                     let sec_l = aux_sec_header.control.security_level;
-
                     macro_rules! do_unsecure {
                         ($tag_size:ty, $mic:pat, $encmic:pat) => {
                             let aead = Ccm::<AEADBLKCIPH, $tag_size, U13>::new(&key);
-                            let taglen = sec_l.get_mic_octet_size() as usize;
+                            taglen = sec_l.get_mic_octet_size() as usize;
 
                             // Copy the tag out of the aead slice
                             let buffer_len = data_and_tag.len();
@@ -518,7 +518,6 @@ where
                                 }
                             };
                             if let Ok(_) = verify {
-                                frame.payload = auth_enc_part;
                             } else {
                                 return Err(SecurityError::TransformationError);
                             }
@@ -548,8 +547,7 @@ where
         } else {
             return Err(SecurityError::UnavailableKey);
         }
-
-        return Ok(());
+        return Ok(buflen - taglen);
     } else {
         if header.auxiliary_security_header.is_some() {
             return Err(SecurityError::AuxSecHeaderPresent);
@@ -601,6 +599,12 @@ pub enum SecurityError {
     UnsupportedSecurity,
     /// The device descriptor that belongs to an address can not be found
     UnavailableDevice,
+}
+
+impl From<byte::Error> for SecurityError {
+    fn from(e: byte::Error) -> Self {
+        SecurityError::WriteError(e)
+    }
 }
 
 impl From<SecurityError> for byte::Error {
@@ -670,7 +674,6 @@ mod tests {
     use crate::mac::frame::*;
     use crate::mac::{frame::frame_control::*, FooterMode};
     use aes_soft::Aes128;
-    use cipher::generic_array::typenum::Unsigned;
     use rand::Rng;
 
     struct StaticKeyLookup();
@@ -682,13 +685,7 @@ mod tests {
             _key_identifier: Option<KeyIdentifier>,
             _device_address: Option<Address>,
         ) -> Option<GenericArray<u8, U16>> {
-            let mut key = GenericArray::default();
-            key[0] = 0x01;
-            key[2] = 0x02;
-            key[3] = 0x03;
-            for i in 0..U16::to_usize() {
-                key[i] = 0x00;
-            }
+            let key = GenericArray::default();
             Some(key)
         }
     }
@@ -827,7 +824,8 @@ mod tests {
             let offset = &mut (aux_sec_len + 1);
 
             let read_res = security::unsecure_frame(
-                &mut frame,
+                &mut frame.header,
+                buf,
                 offset,
                 &mut sec_ctx,
                 FooterMode::None,
@@ -847,8 +845,10 @@ mod tests {
                 },
                 _ => {}
             }
-
-            assert_eq!(frame.payload, *plaintext_payload);
+            assert_eq!(
+                buf[aux_sec_len + 1..aux_sec_len + plaintext_payload.len() + 1],
+                *plaintext_payload
+            );
         };
     }
 
