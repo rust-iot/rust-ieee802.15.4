@@ -33,10 +33,9 @@ pub use cipher::{generic_array::typenum::consts::U16, BlockCipher, NewBlockCiphe
 pub struct AuxiliarySecurityHeader {
     /// The control field in the Auxiliary Security Header
     pub control: SecurityControl,
-    /// If the frame_counter_suppression field in [`AuxiliarySecurityHeader::control`] is not set, this field contains
-    /// the frame counter
+    /// The frame counter
     pub frame_counter: u32,
-    /// If the key_identifier field in [`AuxiliarySecurityHeader::control`] is set, this field contains the key identifier
+    /// If the key_identifier field in [`AuxiliarySecurityHeader::control`] is not set to None, this field contains the key identifier
     /// of this frame, otherwise it is None
     pub key_identifier: Option<KeyIdentifier>,
 }
@@ -223,7 +222,7 @@ pub trait DeviceDescriptorLookup {
 /// NONCEGEN is the type that will convert the nonce created using the 802.15.4 standard
 /// into a nonce of the size that can be accepted by the provided AEAD algorithm
 #[derive(Clone, Copy)]
-pub struct SecurityContext<'a, AEADBLKCIPH, KEYDESCLO>
+pub struct SecurityContext<AEADBLKCIPH, KEYDESCLO>
 where
     AEADBLKCIPH: NewBlockCipher + BlockCipher<BlockSize = U16>,
     KEYDESCLO: KeyLookup<AEADBLKCIPH::KeySize>,
@@ -231,12 +230,12 @@ where
     /// The current frame counter
     pub frame_counter: u32,
     /// The key descriptor lookup to use to look up keys
-    pub key_provider: &'a KEYDESCLO,
+    pub key_provider: KEYDESCLO,
     /// This is phantom data as we use AEAD to actually instantiate an instance
     /// of AEAD, as opposed to actually using a provided AEAD instance somewhere
     ///
     /// The NONCEGEN is phantom data as well
-    phantom_data: PhantomData<AEADBLKCIPH>,
+    pub phantom_data: PhantomData<AEADBLKCIPH>,
 }
 
 /// Appends the auxiliary security header and
@@ -712,10 +711,10 @@ mod tests {
 
     const STATIC_KEY_LOOKUP: StaticKeyLookup = StaticKeyLookup();
 
-    fn c8p1305_sec_ctx<'a>(frame_counter: u32) -> SecurityContext<'a, Aes128, StaticKeyLookup> {
+    fn c8p1305_sec_ctx<'a>(frame_counter: u32) -> SecurityContext<Aes128, StaticKeyLookup> {
         SecurityContext {
             frame_counter,
-            key_provider: &STATIC_KEY_LOOKUP,
+            key_provider: STATIC_KEY_LOOKUP,
             phantom_data: PhantomData,
         }
     }

@@ -182,7 +182,7 @@ where
     /// The footer mode to use when handling frames
     footer_mode: FooterMode,
     /// The security context for handling frames (if any)
-    security_ctx: Option<&'a mut SecurityContext<'a, AEADBLKCIPH, KEYDESCLO>>,
+    security_ctx: Option<&'a mut SecurityContext<AEADBLKCIPH, KEYDESCLO>>,
 }
 
 impl<'a, AEADBLKCIPH, KEYDESCLO> FrameSerDesContext<'a, AEADBLKCIPH, KEYDESCLO>
@@ -194,11 +194,11 @@ where
     /// and security context
     pub fn new(
         mode: FooterMode,
-        security_ctx: &'a mut SecurityContext<'a, AEADBLKCIPH, KEYDESCLO>,
+        security_ctx: Option<&'a mut SecurityContext<AEADBLKCIPH, KEYDESCLO>>,
     ) -> Self {
         FrameSerDesContext {
             footer_mode: mode,
-            security_ctx: Some(security_ctx),
+            security_ctx,
         }
     }
 }
@@ -268,11 +268,14 @@ impl<'a> Frame<'a> {
     /// Currently, this function does not support the explicit footer mode,
     /// as the FCS has to be calculated over the payload before it is unsecured,
     /// which isn't implemented yet
+    ///
+    /// Use FrameSerDexContext::no_security() and [`security::default::Unimplemented`] if you
+    /// do not want to use any security, or simply [`Frame::try_read`]
     pub fn try_read_and_unsecure<AEADBLKCIPH, KEYDESCLO, DEVDESCLO>(
         buf: &'a mut [u8],
         ctx: &mut FrameSerDesContext<'_, AEADBLKCIPH, KEYDESCLO>,
         dev_desc_lo: &mut DEVDESCLO,
-    ) -> Result<Frame<'a>, SecurityError>
+    ) -> Result<(Frame<'a>, usize), SecurityError>
     where
         AEADBLKCIPH: NewBlockCipher + BlockCipher<BlockSize = U16>,
         KEYDESCLO: KeyLookup<AEADBLKCIPH::KeySize>,
@@ -314,7 +317,7 @@ impl<'a> Frame<'a> {
             footer: [0, 0],
         };
 
-        Ok(frame)
+        Ok((frame, *offset))
     }
 }
 
@@ -324,7 +327,7 @@ impl<'a> TryRead<'a, FooterMode> for Frame<'a> {
     /// Frames that have security enabled can not be processed by this function, and an
     /// error will be returned if the frame contained in `bytes` does have it enabled.
     ///
-    /// If you expect to receive secured frames, use [`Frame::try_read_with_unsecure`] instead.
+    /// If you expect to receive secured frames, use [`Frame::try_read_with_unsecure`] instead,
     fn try_read(bytes: &'a [u8], mode: FooterMode) -> byte::Result<(Self, usize)> {
         let offset = &mut 0;
         let header: Header = bytes.read(offset)?;

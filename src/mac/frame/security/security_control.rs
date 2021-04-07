@@ -10,12 +10,24 @@ use crate::mac::DecodeError;
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct SecurityControl {
     /// The security level applied to the incoming frame
-    pub security_level: SecurityLevel,
+    pub(crate) security_level: SecurityLevel,
     /// The mode used to identify the key used to secure the incoming frame
     ///
     /// This field is set/overwritten when the AuxiliarySecurityHeader that contains this
     /// SecurityControl is written, based on the [super::KeyIdentifier] that it contains
     pub(crate) key_id_mode: KeyIdentifierMode,
+}
+
+impl SecurityControl {
+    /// Create a new securitycontrol with the specified level.
+    ///
+    /// The key id mode is determined at a different time
+    pub fn new(security_level: SecurityLevel) -> Self {
+        Self {
+            security_level,
+            key_id_mode: KeyIdentifierMode::None,
+        }
+    }
 }
 
 impl TryRead<'_> for SecurityControl {
