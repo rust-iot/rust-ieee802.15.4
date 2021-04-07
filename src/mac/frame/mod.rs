@@ -182,7 +182,7 @@ where
     /// The footer mode to use when handling frames
     footer_mode: FooterMode,
     /// The security context for handling frames (if any)
-    security_ctx: Option<SecurityContext<'a, AEADBLKCIPH, KEYDESCLO>>,
+    security_ctx: Option<&'a mut SecurityContext<'a, AEADBLKCIPH, KEYDESCLO>>,
 }
 
 impl<'a, AEADBLKCIPH, KEYDESCLO> FrameSerDesContext<'a, AEADBLKCIPH, KEYDESCLO>
@@ -194,7 +194,7 @@ where
     /// and security context
     pub fn new(
         mode: FooterMode,
-        security_ctx: SecurityContext<'a, AEADBLKCIPH, KEYDESCLO>,
+        security_ctx: &'a mut SecurityContext<'a, AEADBLKCIPH, KEYDESCLO>,
     ) -> Self {
         FrameSerDesContext {
             footer_mode: mode,

@@ -9,7 +9,7 @@ use byte::{BytesExt, TryRead, TryWrite, LE};
 use ccm::{
     aead::{
         generic_array::{
-            typenum::consts::{U13, U16, U4, U8},
+            typenum::consts::{U13, U16 as CcmU16, U4, U8},
             ArrayLength, GenericArray,
         },
         AeadInPlace, NewAead,
@@ -25,7 +25,7 @@ pub(crate) mod default;
 mod security_control;
 pub use security_control::{KeyIdentifierMode, SecurityControl, SecurityLevel};
 
-pub use cipher::{BlockCipher, NewBlockCipher};
+pub use cipher::{generic_array::typenum::consts::U16, BlockCipher, NewBlockCipher};
 
 /// A struct describing the Auxiliary Security Header
 /// See: section 7.4 of the 802.15.4-2011 standard
@@ -381,7 +381,7 @@ where
                         do_secure!(U8, SecurityLevel::MIC64, SecurityLevel::ENCMIC64);
                     }
                     SecurityLevel::MIC128 | SecurityLevel::ENCMIC128 => {
-                        do_secure!(U16, SecurityLevel::MIC128, SecurityLevel::ENCMIC128);
+                        do_secure!(CcmU16, SecurityLevel::MIC128, SecurityLevel::ENCMIC128);
                     }
                     #[allow(unreachable_patterns)]
                     _ => {}
