@@ -16,7 +16,6 @@ use ccm::{
     },
     Ccm,
 };
-use cipher::{BlockCipher, NewBlockCipher};
 
 use crate::mac::{Address, FrameType, FrameVersion};
 
@@ -25,6 +24,8 @@ use super::{FooterMode, Frame, Header};
 pub(crate) mod default;
 mod security_control;
 pub use security_control::{KeyIdentifierMode, SecurityControl, SecurityLevel};
+
+pub use cipher::{BlockCipher, NewBlockCipher};
 
 /// A struct describing the Auxiliary Security Header
 /// See: section 7.4 of the 802.15.4-2011 standard
