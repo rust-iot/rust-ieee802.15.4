@@ -174,7 +174,7 @@ mod mask {
 
 mod offset {
     pub const SECURITY_LEVEL: u8 = 0;
-    pub const KEY_IDENTIFIER_MODE: u8 = 2;
+    pub const KEY_IDENTIFIER_MODE: u8 = 3;
 
     // The below fields are present only in the 802.15.4-2020 version of the standard
     /*

@@ -432,14 +432,14 @@ where
         // Check for unimplemented behaviour before performing any operations on the buffer
         match header.frame_type {
             FrameType::Data => {}
-            _ => return Err(SecurityError::NotImplemented),
+            _ => panic!(),
         }
 
         let mut nonce = [0u8; 13];
         match source {
             // Not implemented because currently no functionality for determining the
             // extended address with which a short address is associated exists
-            Address::Short(..) => return Err(SecurityError::NotImplemented),
+            Address::Short(..) => panic!(),
             Address::Extended(_, addr) => {
                 // Generate the nonce as described in 7.2.2
                 for i in 0..7 {

@@ -173,6 +173,11 @@ impl TryRead<'_> for Header {
             }
         };
 
+        let auxiliary_security_header = match security {
+            true => Some(bytes.read_with(offset, ())?),
+            false => None,
+        };
+
         let header = Header {
             frame_type,
             security,
@@ -183,7 +188,7 @@ impl TryRead<'_> for Header {
             seq,
             destination,
             source,
-            auxiliary_security_header: None,
+            auxiliary_security_header,
         };
 
         Ok((header, *offset))
@@ -227,6 +232,14 @@ impl TryWrite for Header {
             }
             (None, false) => (),
         }
+
+        match self.auxiliary_security_header {
+            Some(aux_sec_head) => {
+                bytes.write(offset, aux_sec_head)?;
+            }
+            None => {}
+        }
+
         Ok(*offset)
     }
 }
