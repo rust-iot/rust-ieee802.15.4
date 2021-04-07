@@ -238,10 +238,12 @@ where
         let mut security_enabled = false;
 
         if let Some(ctx) = context.security_ctx.as_mut() {
-            let write_secured =
-                security::secure_frame(self, ctx, context.footer_mode, offset, bytes);
+            let write_secured = security::secure_frame(self, ctx, context.footer_mode, bytes);
             match write_secured {
-                Ok(_) => security_enabled = true,
+                Ok(len) => {
+                    security_enabled = true;
+                    *offset += len
+                }
                 Err(e) => match e {
                     SecurityError::SecurityNotEnabled => {}
                     _ => return Err(e)?,
@@ -258,6 +260,7 @@ where
             // TODO: recalculate the footer after encryption?
             FooterMode::Explicit => bytes.write(offset, &self.footer[..])?,
         }
+
         Ok(*offset)
     }
 }
@@ -290,6 +293,7 @@ impl<'a> Frame<'a> {
 
         let offset = &mut 0;
         let header: Header = buf.read(offset)?;
+        let content_index = *offset - 1;
         let content = buf.read_with(offset, &header)?;
 
         let mut tag_size = 0;
@@ -298,8 +302,7 @@ impl<'a> Frame<'a> {
             if let Some(sec_ctx) = ctx.security_ctx.as_mut() {
                 tag_size = match security::unsecure_frame(
                     &header,
-                    buf,
-                    offset,
+                    &mut buf[content_index..],
                     sec_ctx,
                     ctx.footer_mode,
                     dev_desc_lo,

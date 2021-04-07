@@ -55,14 +55,9 @@ impl TryRead<'_> for SecurityControl {
 impl TryWrite for SecurityControl {
     fn try_write(self, bytes: &mut [u8], _ctx: ()) -> byte::Result<usize> {
         let offset = &mut 0;
-        bytes.write(
-            offset,
-            self.security_level.to_bits() << offset::SECURITY_LEVEL,
-        )?;
-        bytes.write(
-            offset,
-            self.key_id_mode.to_bits() << offset::KEY_IDENTIFIER_MODE,
-        )?;
+        let control_byte = (self.security_level.to_bits() << offset::SECURITY_LEVEL)
+            | (self.key_id_mode.to_bits() << offset::KEY_IDENTIFIER_MODE);
+        bytes.write(offset, control_byte)?;
         Ok(*offset)
     }
 }

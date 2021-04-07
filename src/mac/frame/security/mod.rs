@@ -238,9 +238,8 @@ where
     pub phantom_data: PhantomData<AEADBLKCIPH>,
 }
 
-/// Appends the auxiliary security header and
-/// secured payload of a [Frame] to the provided buffer, secured according to the security settings specified in
-/// the [Frame]'s [`super::Header`] and [AuxiliarySecurityHeader].
+/// Appends the secured payload of a [Frame] to the provided buffer, secured according to the
+/// security settings specified in the [Frame]'s [`super::Header`] and [AuxiliarySecurityHeader].
 ///
 /// Offset is updated with the amount of bytes that is written
 ///
@@ -251,13 +250,13 @@ pub(crate) fn secure_frame<'a, AEADBLKCIPH, KEYDESCLO>(
     frame: Frame<'_>,
     context: &mut SecurityContext<AEADBLKCIPH, KEYDESCLO>,
     footer_mode: FooterMode,
-    offset: &mut usize,
     buffer: &mut [u8],
-) -> Result<(), SecurityError>
+) -> Result<usize, SecurityError>
 where
     AEADBLKCIPH: NewBlockCipher + BlockCipher<BlockSize = U16>,
     KEYDESCLO: KeyLookup<AEADBLKCIPH::KeySize>,
 {
+    let mut offset = 0 as usize;
     let header = frame.header;
 
     if header.security {
@@ -297,21 +296,14 @@ where
                 return Err(SecurityError::FrameTooLong);
             }
 
-            // Write auxilary authentication header to buffer
-            // This is technically only 7.2.1f, but if we perform 7.1.2c first, it would mean that
-            // no auxiliary security header is present even if Security Enabled is set to 1
-            if let Err(e) = buffer.write(offset, aux_sec_header) {
-                return Err(SecurityError::WriteError(e));
-            }
-
             // Write unencrypted data to the buffer, 7.2.1c, preparation for in-place AEAD in 7.2.1g
-            if let Err(e) = buffer.write(offset, frame.payload) {
+            if let Err(e) = buffer.write(&mut offset, frame.payload) {
                 return Err(SecurityError::WriteError(e));
             }
 
             // Success if the security level is none (7.2.1c)
             if aux_sec_header.control.security_level == SecurityLevel::None {
-                return Ok(());
+                return Ok(offset);
             }
 
             // 7.2.1d
@@ -327,19 +319,15 @@ where
             ) {
                 // 7.2.1g
                 let sec_l = aux_sec_header.control.security_level;
-                let aux_sec_header_len = aux_sec_header.get_octet_size() as usize;
 
                 // Macro that invokes the security procedure for block ciphers with different tag
                 // sizes
                 macro_rules! do_secure {
                     ($tag_size:ty, $mic:pat, $encmic:pat) => {
                         let aead = Ccm::<AEADBLKCIPH, $tag_size, U13>::new(&key);
-
                         let auth_enc_part = match footer_mode {
-                            FooterMode::None => &mut buffer[aux_sec_header_len + 1..*offset],
-                            FooterMode::Explicit => {
-                                &mut buffer[aux_sec_header_len + 1..*offset - 2]
-                            }
+                            FooterMode::None => &mut buffer[..offset],
+                            FooterMode::Explicit => unimplemented!(),
                         };
 
                         let tag = match sec_l {
@@ -358,7 +346,7 @@ where
                             }
                         };
                         if let Ok(tag) = tag {
-                            if let Err(e) = buffer.write(offset, tag.as_slice()) {
+                            if let Err(e) = buffer.write(&mut offset, tag.as_slice()) {
                                 return Err(SecurityError::WriteError(e));
                             }
                         } else {
@@ -385,7 +373,7 @@ where
                     #[allow(unreachable_patterns)]
                     _ => {}
                 };
-                return Ok(());
+                return Ok(offset);
             } else {
                 return Err(SecurityError::UnavailableKey);
             }
@@ -402,7 +390,13 @@ where
 }
 
 /// Unsecure a currently secured frame, based on the
-/// settings found in the header of `frame`
+/// settings found in the header of `frame`. `buffer` should be
+/// the slice containing the authenticated and possibly encrypted data,
+/// and its tag.
+///
+/// # Returns
+/// In case of success, the function returns the length of the authentication tag,
+/// i.e. the amount of bytes at the end of the payload that should be ignored
 ///
 /// Replaces the payload of `frame` with the unsecured version
 ///
@@ -411,7 +405,6 @@ where
 pub(crate) fn unsecure_frame<'a, AEADBLKCIPH, KEYDESCLO, DEVDESCLO>(
     header: &Header,
     buffer: &mut [u8],
-    offset: &mut usize,
     context: &mut SecurityContext<AEADBLKCIPH, KEYDESCLO>,
     footer_mode: FooterMode,
     dev_desc_lo: &mut DEVDESCLO,
@@ -422,8 +415,6 @@ where
     DEVDESCLO: DeviceDescriptorLookup,
 {
     if header.security {
-        let buflen = buffer.len();
-
         let source = match header.source {
             Some(addr) => addr,
             _ => return Err(SecurityError::NoDestinationAddress),
@@ -481,10 +472,9 @@ where
 
                     *frame_counter = aux_sec_header.frame_counter;
 
-                    let buffer_len = buffer.len();
                     let data_and_tag = match footer_mode {
-                        FooterMode::None => &mut buffer[*offset..],
-                        FooterMode::Explicit => &mut buffer[*offset..buffer_len - 2],
+                        FooterMode::None => &mut buffer[..],
+                        FooterMode::Explicit => unimplemented!(),
                     };
 
                     let sec_l = aux_sec_header.control.security_level;
@@ -492,7 +482,6 @@ where
                         ($tag_size:ty, $mic:pat, $encmic:pat) => {
                             let aead = Ccm::<AEADBLKCIPH, $tag_size, U13>::new(&key);
                             taglen = sec_l.get_mic_octet_size() as usize;
-
                             // Copy the tag out of the aead slice
                             let buffer_len = data_and_tag.len();
                             let tag = GenericArray::from_slice(
@@ -549,7 +538,7 @@ where
         } else {
             return Err(SecurityError::UnavailableKey);
         }
-        return Ok(buflen - taglen);
+        return Ok(taglen);
     } else {
         if header.auxiliary_security_header.is_some() {
             return Err(SecurityError::AuxSecHeaderPresent);
@@ -777,7 +766,6 @@ mod tests {
                     key_index: 0,
                 }),
             });
-            let aux_sec_len = aux_sec_header.unwrap().get_octet_size() as usize;
 
             let plaintext_payload = &mut [0xFF, 0x00, 0xFF, 0x00, 0xFF, 0x00];
             let plaintext_len = plaintext_payload.len();
@@ -793,19 +781,16 @@ mod tests {
 
             let mut storage = [0u8; 64];
 
-            let buf = &mut storage
-                [..aux_sec_len + plaintext_len + ($level.get_mic_octet_size() as usize) + 1];
+            let buf = &mut storage[..plaintext_len + $level.get_mic_octet_size() as usize];
 
             let mut sec_ctx = c8p1305_sec_ctx(1000);
-            let offset = &mut 0;
-            let write_res =
-                security::secure_frame(frame, &mut sec_ctx, FooterMode::None, offset, buf);
+            let write_res = security::secure_frame(frame, &mut sec_ctx, FooterMode::None, buf);
 
             match write_res {
                 Err(e) => {
                     assert!(false, "Failed to secure frame {:?}!", e);
                 }
-                _ => {}
+                Ok(_) => {}
             }
 
             let mut frame = get_frame(
@@ -823,12 +808,9 @@ mod tests {
                 exempt: false,
             };
 
-            let offset = &mut (aux_sec_len + 1);
-
             let read_res = security::unsecure_frame(
                 &mut frame.header,
                 buf,
-                offset,
                 &mut sec_ctx,
                 FooterMode::None,
                 &mut BasicDevDescriptorLookup::new(device_desc),
@@ -847,10 +829,7 @@ mod tests {
                 },
                 _ => {}
             }
-            assert_eq!(
-                buf[aux_sec_len + 1..aux_sec_len + plaintext_payload.len() + 1],
-                *plaintext_payload
-            );
+            assert_eq!(buf[..plaintext_payload.len()], *plaintext_payload);
         };
     }
 
@@ -866,17 +845,20 @@ mod tests {
             true,
         );
 
-        let offset = &mut 0;
         let mut buf = [0u8; 127];
         let mut sec_ctx = c8p1305_sec_ctx(1000);
-        let write_res =
-            security::secure_frame(frame, &mut sec_ctx, FooterMode::None, offset, &mut buf);
-        if let Err(SecurityError::SecurityNotEnabled) = write_res {
-        } else {
-            assert!(
-                false,
-                "Security was not enabled, but securing payload succeeded!"
-            );
+        let write_res = security::secure_frame(frame, &mut sec_ctx, FooterMode::None, &mut buf);
+        match write_res {
+            Ok(_) => {}
+            Err(e) => match e {
+                SecurityError::SecurityNotEnabled => {}
+                _ => {
+                    assert!(
+                        false,
+                        "Security was not enabled, but securing payload succeeded!"
+                    )
+                }
+            },
         }
     }
 

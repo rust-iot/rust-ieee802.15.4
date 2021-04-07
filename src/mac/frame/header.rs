@@ -174,7 +174,7 @@ impl TryRead<'_> for Header {
         };
 
         let auxiliary_security_header = match security {
-            true => Some(bytes.read_with(offset, ())?),
+            true => Some(bytes.read(offset)?),
             false => None,
         };
 
