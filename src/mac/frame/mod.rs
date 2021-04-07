@@ -281,9 +281,15 @@ impl<'a> Frame<'a> {
         KEYDESCLO: KeyLookup<AEADBLKCIPH::KeySize>,
         DEVDESCLO: DeviceDescriptorLookup,
     {
+        match ctx.footer_mode {
+            FooterMode::None => {}
+            FooterMode::Explicit => {
+                unimplemented!()
+            }
+        }
+
         let offset = &mut 0;
         let header: Header = buf.read(offset)?;
-
         let content = buf.read_with(offset, &header)?;
 
         let mut tag_size = 0;

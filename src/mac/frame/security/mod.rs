@@ -479,6 +479,8 @@ where
                         return Err(SecurityError::CounterError);
                     }
 
+                    *frame_counter = aux_sec_header.frame_counter;
+
                     let buffer_len = buffer.len();
                     let data_and_tag = match footer_mode {
                         FooterMode::None => &mut buffer[*offset..],
