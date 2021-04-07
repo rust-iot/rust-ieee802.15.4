@@ -263,7 +263,11 @@ where
 }
 
 impl<'a> Frame<'a> {
+    /// Try to read a frame. If the frame is secured, it will be unsecured
     ///
+    /// Currently, this function does not support the explicit footer mode,
+    /// as the FCS has to be calculated over the payload before it is unsecured,
+    /// which isn't implemented yet
     pub fn try_read_and_unsecure<AEADBLKCIPH, KEYDESCLO, DEVDESCLO>(
         buf: &'a mut [u8],
         ctx: &mut FrameSerDesContext<'_, AEADBLKCIPH, KEYDESCLO>,
@@ -279,34 +283,38 @@ impl<'a> Frame<'a> {
 
         let content = buf.read_with(offset, &header)?;
 
-        if let Some(sec_ctx) = ctx.security_ctx.as_mut() {
-            let tag_size = match security::unsecure_frame(
-                &header,
-                buf,
-                offset,
-                sec_ctx,
-                ctx.footer_mode,
-                dev_desc_lo,
-            ) {
-                Ok(size) => size,
-                Err(e) => match e {
-                    SecurityError::SecurityNotEnabled => 0,
-                    _ => return Err(e),
-                },
-            };
-            let payload = buf.read_with(offset, Bytes::Len(buf.len() - *offset - tag_size))?;
+        let mut tag_size = 0;
 
-            let frame = Frame {
-                header,
-                content,
-                payload,
-                footer: [0, 0],
-            };
-
-            Ok(frame)
-        } else {
-            return Err(SecurityError::InvalidSecContext);
+        if header.security {
+            if let Some(sec_ctx) = ctx.security_ctx.as_mut() {
+                tag_size = match security::unsecure_frame(
+                    &header,
+                    buf,
+                    offset,
+                    sec_ctx,
+                    ctx.footer_mode,
+                    dev_desc_lo,
+                ) {
+                    Ok(size) => size,
+                    Err(e) => match e {
+                        SecurityError::SecurityNotEnabled => 0,
+                        _ => return Err(e),
+                    },
+                };
+            } else {
+                return Err(SecurityError::InvalidSecContext);
+            }
         }
+        let payload = buf.read_with(offset, Bytes::Len(buf.len() - *offset - tag_size))?;
+
+        let frame = Frame {
+            header,
+            content,
+            payload,
+            footer: [0, 0],
+        };
+
+        Ok(frame)
     }
 }
 
