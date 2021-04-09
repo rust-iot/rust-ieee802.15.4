@@ -127,6 +127,9 @@ fn calculate_nonce(source_addr: u64, frame_counter: u32, sec_level: SecurityLeve
 /// Currently only supports the securing of Data frames with extended addresses
 ///
 /// Partial implementation of 7.2.1
+///
+/// # Panics
+/// if footer_mode is not None due to currently absent implementation of explicit footers
 pub(crate) fn secure_frame<'a, AEADBLKCIPH, KEYDESCLO>(
     frame: Frame<'_>,
     context: &mut SecurityContext<AEADBLKCIPH, KEYDESCLO>,
@@ -137,6 +140,17 @@ where
     AEADBLKCIPH: NewBlockCipher + BlockCipher<BlockSize = U16>,
     KEYDESCLO: KeyLookup<AEADBLKCIPH::KeySize>,
 {
+    match footer_mode {
+        FooterMode::None => {}
+        FooterMode::Explicit => {
+            // We should panic here, as having an explicit footer is not supported
+            // and it is not something that can be altered at runtime in a way that affects
+            // the availability of the system. Doing so here also ensures that the program always
+            // panics if FooterMode::Explicit is used, instead of doing other checks first
+            unimplemented!()
+        }
+    }
+
     let mut offset = 0 as usize;
     let header = frame.header;
 
@@ -281,6 +295,9 @@ where
 ///
 /// Partial implementation of 7.2.3
 /// Currently not implemented: 7.2.3h, 7.2.3i, 7.2.3j, 7.2.3k, 7.2.3n
+///
+/// # Panics
+/// if footer_mode is not None due to currently absent implementation of explicit footers
 pub(crate) fn unsecure_frame<'a, AEADBLKCIPH, KEYDESCLO, DEVDESCLO>(
     header: &Header,
     buffer: &mut [u8],
@@ -293,6 +310,16 @@ where
     KEYDESCLO: KeyLookup<AEADBLKCIPH::KeySize>,
     DEVDESCLO: DeviceDescriptorLookup,
 {
+    match footer_mode {
+        FooterMode::None => {}
+        FooterMode::Explicit => {
+            // We should panic here, as having an explicit footer is not supported
+            // and it is not something that can be altered at runtime in a way that affects
+            // the availability of the system
+            unimplemented!()
+        }
+    }
+
     if header.has_security() {
         let (source, source_u64) = match header.source {
             Some(addr) => match addr {

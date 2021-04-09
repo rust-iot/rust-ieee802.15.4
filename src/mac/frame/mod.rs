@@ -58,7 +58,7 @@ use self::security::{
 /// // Construct a simple MAC frame. The CRC checksum (the last 2 bytes) is
 /// // invalid, for the sake of convenience.
 /// let bytes = [
-///     0x01u8, 0x98,             // frame control
+///     0x01u8, 0x98,           // frame control
 ///     0x00,                   // sequence number
 ///     0x12, 0x34, 0x56, 0x78, // PAN identifier and address of destination
 ///     0x12, 0x34, 0x9a, 0xbc, // PAN identifier and address of source
@@ -71,7 +71,7 @@ use self::security::{
 ///
 /// assert_eq!(frame.header.seq,       0x00);
 /// assert_eq!(header.frame_type,      FrameType::Data);
-/// assert_eq!(header.has_security(),        false);
+/// assert_eq!(header.has_security(),  false);
 /// assert_eq!(header.frame_pending,   false);
 /// assert_eq!(header.ack_request,     false);
 /// assert_eq!(header.pan_id_compress, false);
@@ -284,13 +284,6 @@ impl<'a> Frame<'a> {
         KEYDESCLO: KeyLookup<AEADBLKCIPH::KeySize>,
         DEVDESCLO: DeviceDescriptorLookup,
     {
-        match ctx.footer_mode {
-            FooterMode::None => {}
-            FooterMode::Explicit => {
-                unimplemented!()
-            }
-        }
-
         let offset = &mut 0;
         let header: Header = buf.read(offset)?;
         let content = buf.read_with(offset, &header)?;
