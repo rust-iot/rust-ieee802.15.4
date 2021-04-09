@@ -575,23 +575,23 @@ mod tests {
             Some((device_address.unwrap(), key))
         }
     }
-    struct BasicDevDescriptorLookup {
-        list: [DeviceDescriptor; 1],
+    struct BasicDevDescriptorLookup<'a> {
+        descriptor: &'a mut DeviceDescriptor,
     }
 
-    impl BasicDevDescriptorLookup {
-        pub fn new(desc: DeviceDescriptor) -> Self {
-            Self { list: [desc] }
+    impl<'a> BasicDevDescriptorLookup<'a> {
+        pub fn new(descriptor: &'a mut DeviceDescriptor) -> Self {
+            Self { descriptor }
         }
     }
 
-    impl DeviceDescriptorLookup for BasicDevDescriptorLookup {
+    impl<'a> DeviceDescriptorLookup for BasicDevDescriptorLookup<'a> {
         fn lookup_device(
             &mut self,
             _addressing_mode: AddressingMode,
             _address: Address,
         ) -> Option<&mut DeviceDescriptor> {
-            Some(&mut self.list[0])
+            Some(self.descriptor)
         }
     }
 
@@ -677,7 +677,7 @@ mod tests {
 
             let mut frame = get_frame(Some(source), Some(destination), &[], aux_sec_header);
 
-            let device_desc = DeviceDescriptor {
+            let device_desc = &mut DeviceDescriptor {
                 address: Address::Extended(PanId(511), ExtendedAddress(0xAAFFAAFFAAFFu64)),
                 frame_counter: FRAME_CTR,
                 exempt: false,
@@ -775,7 +775,10 @@ mod tests {
         let aux_sec_header = Some(AuxiliarySecurityHeader {
             control: SecurityControl::new(SecurityLevel::ENCMIC32),
             frame_counter: FRAME_CTR,
-            key_identifier: None,
+            key_identifier: Some(KeyIdentifier {
+                key_source: Some(KeySource::Long(0xABABABABABABABAB)),
+                key_index: 48,
+            }),
         });
 
         let plaintext_payload = &mut [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF];
@@ -806,18 +809,18 @@ mod tests {
         };
 
         // Assert that the length is correct (header field lengths, etc)
-        assert_eq!(len, 2 + 1 + 2 + 8 + 2 + 8 + 1 + 4 + 0 + plaintext_len + 4);
+        assert_eq!(len, 2 + 1 + 2 + 8 + 2 + 8 + 1 + 4 + 9 + plaintext_len + 4);
 
         assert_eq!(
             &buf[..len],
             &[
-                0x9, 0xEC, 0x7F, 0x22, 0x22, 0x9, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x11, 0x1,
-                0x8, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x5, 0x3, 0x3, 0x3, 0x3, 0x7D, 0xE8, 0x2C,
-                0xC9, 0xD7, 0xA8, 0x9D, 0x4D, 0xD, 0x6,
+                9, 236, 127, 34, 34, 9, 0, 0, 0, 0, 0, 0, 0, 17, 1, 8, 0, 0, 0, 0, 0, 0, 0, 29, 3,
+                3, 3, 3, 171, 171, 171, 171, 171, 171, 171, 171, 48, 125, 232, 44, 201, 215, 168,
+                157, 77, 13, 6
             ]
         );
 
-        let device_desc = DeviceDescriptor {
+        let device_desc = &mut DeviceDescriptor {
             address: Address::Extended(PanId(511), ExtendedAddress(0xAAFFAAFFAAFFu64)),
             frame_counter: FRAME_CTR,
             exempt: false,
@@ -835,7 +838,32 @@ mod tests {
             }
         };
 
+        assert!(frame.header.auxiliary_security_header.is_some());
         assert_eq!(plaintext_clone, frame.payload);
+
+        let aux_sec = frame.header.auxiliary_security_header.unwrap();
+        assert_eq!(aux_sec.control.security_level, SecurityLevel::ENCMIC32);
+        assert_eq!(aux_sec.control.key_id_mode, KeyIdentifierMode::KeySource8);
+        match aux_sec.key_identifier {
+            Some(identifier) => {
+                assert_eq!(identifier.key_index, 48);
+                match identifier.key_source {
+                    Some(source) => match source {
+                        KeySource::Long(id) => {
+                            assert_eq!(id, 0xABABABABABABABAB);
+                        }
+                        KeySource::Short(_) => {
+                            assert!(false, "Did not parse key identifier correctly")
+                        }
+                    },
+                    None => assert!(false, "Did not parse key identifier correctly"),
+                }
+            }
+            None => assert!(false, "Did not parse key identifier correctly"),
+        }
+        assert_eq!(aux_sec.frame_counter, FRAME_CTR);
+        assert_eq!(sec_ctx.frame_counter, FRAME_CTR + 1);
+        assert_eq!(device_desc.frame_counter, sec_ctx.frame_counter);
     }
 
     #[test]
@@ -887,7 +915,7 @@ mod tests {
         // Simulate a bit change
         buf[33] ^= 0x01;
 
-        let device_desc = DeviceDescriptor {
+        let device_desc = &mut DeviceDescriptor {
             address: Address::Extended(PanId(511), ExtendedAddress(0xAAFFAAFFAAFFu64)),
             frame_counter: FRAME_CTR,
             exempt: false,
@@ -896,7 +924,7 @@ mod tests {
         match Frame::try_read_and_unsecure(
             buf,
             &mut FrameSerDesContext::new(FooterMode::None, Some(&mut sec_ctx)),
-            &mut BasicDevDescriptorLookup::new(device_desc.clone()),
+            &mut BasicDevDescriptorLookup::new(device_desc),
         ) {
             Ok(_) => assert!(false, "Successfully unsecured an altered frame!"),
             Err(e) => match e {
@@ -915,7 +943,7 @@ mod tests {
         //
         // Test counter errors
         //
-        let device_desc = DeviceDescriptor {
+        let device_desc = &mut DeviceDescriptor {
             address: Address::Extended(PanId(511), ExtendedAddress(0xAAFFAAFFAAFFu64)),
             frame_counter: FRAME_CTR + 5,
             exempt: false,
@@ -937,7 +965,7 @@ mod tests {
             },
         };
 
-        let device_desc = DeviceDescriptor {
+        let device_desc = &mut DeviceDescriptor {
             address: Address::Extended(PanId(511), ExtendedAddress(0xAAFFAAFFAAFFu64)),
             frame_counter: 0xFFFFFFFF,
             exempt: false,
