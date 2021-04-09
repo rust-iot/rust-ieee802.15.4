@@ -9,7 +9,7 @@ use byte::{BytesExt, TryRead, TryWrite, LE};
 use ccm::{
     aead::{
         generic_array::{
-            typenum::consts::{U13, U16 as CcmU16, U4, U8},
+            typenum::consts::{U13 as CcmU13, U16 as CcmU16, U4, U8},
             ArrayLength, GenericArray,
         },
         AeadInPlace, NewAead,
@@ -338,7 +338,8 @@ where
                 // sizes
                 macro_rules! do_secure {
                     ($tag_size:ty, $mic:pat, $encmic:pat) => {
-                        let aead = Ccm::<AEADBLKCIPH, $tag_size, U13>::new(&key);
+                        let aead = Ccm::<AEADBLKCIPH, $tag_size, CcmU13>::new(&key);
+
                         let auth_enc_part = match footer_mode {
                             FooterMode::None => &mut buffer[..offset],
                             FooterMode::Explicit => return Err(SecurityError::NotImplemented),
@@ -359,6 +360,7 @@ where
                                 panic!("Impossible")
                             }
                         };
+
                         if let Ok(tag) = tag {
                             if let Err(e) = buffer.write(&mut offset, tag.as_slice()) {
                                 return Err(SecurityError::WriteError(e));
@@ -478,17 +480,15 @@ where
                         aux_sec_header.control.security_level,
                     );
 
-                    *frame_counter = aux_sec_header.frame_counter;
-
                     let data_and_tag = match footer_mode {
-                        FooterMode::None => &mut buffer[..],
+                        FooterMode::None => buffer,
                         FooterMode::Explicit => unimplemented!(),
                     };
 
                     let sec_l = aux_sec_header.control.security_level;
                     macro_rules! do_unsecure {
                         ($tag_size:ty, $mic:pat, $encmic:pat) => {
-                            let aead = Ccm::<AEADBLKCIPH, $tag_size, U13>::new(&key);
+                            let aead = Ccm::<AEADBLKCIPH, $tag_size, CcmU13>::new(&key);
                             taglen = sec_l.get_mic_octet_size() as usize;
                             // Copy the tag out of the aead slice
                             let buffer_len = data_and_tag.len();
@@ -517,6 +517,7 @@ where
                                 }
                             };
                             if let Ok(_) = verify {
+                                *frame_counter = aux_sec_header.frame_counter + 1;
                             } else {
                                 return Err(SecurityError::TransformationError);
                             }

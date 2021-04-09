@@ -335,7 +335,7 @@ impl<'a> TryRead<'a, FooterMode> for Frame<'a> {
     /// Frames that have security enabled can not be processed by this function, and an
     /// error will be returned if the frame contained in `bytes` does have it enabled.
     ///
-    /// If you expect to receive secured frames, use [`Frame::try_read_with_unsecure`] instead,
+    /// If you expect to receive secured frames, use [`Frame::try_read_and_unsecure`] instead,
     fn try_read(bytes: &'a [u8], mode: FooterMode) -> byte::Result<(Self, usize)> {
         let offset = &mut 0;
         let header: Header = bytes.read(offset)?;
