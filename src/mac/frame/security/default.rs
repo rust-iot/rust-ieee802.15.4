@@ -7,7 +7,11 @@ use ccm::aead::generic_array::{
 };
 use cipher::{BlockCipher, NewBlockCipher};
 
-use super::{DeviceDescriptorLookup, KeyLookup};
+use crate::mac::Address;
+
+use super::{
+    auxiliary_security_header::KeyIdentifier, AddressingMode, DeviceDescriptorLookup, KeyLookup,
+};
 
 /// A struct that fullfills all of the type checks, but is not actually capable of
 /// performing any of the operations
@@ -16,9 +20,9 @@ pub struct Unimplemented;
 impl KeyLookup<U16> for Unimplemented {
     fn lookup_key(
         &self,
-        _address_mode: super::AddressingMode,
-        _key_identifier: Option<super::KeyIdentifier>,
-        _device_address: Option<crate::mac::Address>,
+        _address_mode: AddressingMode,
+        _key_identifier: Option<KeyIdentifier>,
+        _device_address: Option<Address>,
     ) -> Option<GenericArray<u8, U16>> {
         None
     }
