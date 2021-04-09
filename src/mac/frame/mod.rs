@@ -71,7 +71,7 @@ use self::security::{
 ///
 /// assert_eq!(frame.header.seq,       0x00);
 /// assert_eq!(header.frame_type,      FrameType::Data);
-/// assert_eq!(header.security,        false);
+/// assert_eq!(header.has_security(),        false);
 /// assert_eq!(header.frame_pending,   false);
 /// assert_eq!(header.ack_request,     false);
 /// assert_eq!(header.pan_id_compress, false);
@@ -115,7 +115,6 @@ use self::security::{
 /// let frame = Frame {
 ///     header: Header {
 ///         frame_type:      FrameType::Data,
-///         security:        false,
 ///         frame_pending:   false,
 ///         ack_request:     false,
 ///         pan_id_compress: false,
