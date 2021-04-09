@@ -876,7 +876,10 @@ mod tests {
 
     #[test]
     fn encode_decode_secured_frame() {
-        let (source, destination) = get_rand_addrpair();
+        let (source, destination) = (
+            Address::Extended(PanId(0x111), ExtendedAddress(0x08)),
+            Address::Extended(PanId(0x2222), ExtendedAddress(0x09)),
+        );
 
         let aux_sec_header = Some(AuxiliarySecurityHeader {
             control: SecurityControl::new(SecurityLevel::ENCMIC32),
@@ -910,7 +913,18 @@ mod tests {
                 panic!();
             }
         };
+
+        // Assert that the length is correct (header field lengths, etc)
         assert_eq!(len, 2 + 1 + 2 + 8 + 2 + 8 + 1 + 4 + 0 + plaintext_len + 4);
+
+        assert_eq!(
+            &buf[..len],
+            &[
+                0x9, 0xEC, 0x7F, 0x22, 0x22, 0x9, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x11, 0x1,
+                0x8, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x5, 0x3, 0x3, 0x3, 0x3, 0x7D, 0xE8, 0x2C,
+                0xC9, 0xD7, 0xA8, 0x9D, 0x4D, 0xD, 0x6,
+            ]
+        );
 
         let device_desc = DeviceDescriptor {
             address: Address::Extended(PanId(511), ExtendedAddress(0xAAFFAAFFAAFFu64)),
