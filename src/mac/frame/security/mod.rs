@@ -62,12 +62,15 @@ where
     /// This function should return None if the key lookup fails (i.e. a failed status),
     /// and some if the lookup succeeds, where the Option contains the KeyDescriptor that was
     /// found according to the passed in parameters
+    ///
+    /// The address that is returned _must_ be of the type [`Address::Extended`], as it is used
+    /// for generating the nonce
     fn lookup_key(
         &self,
         address_mode: AddressingMode,
         key_identifier: Option<KeyIdentifier>,
         device_address: Option<Address>,
-    ) -> Option<GenericArray<u8, N>>;
+    ) -> Option<(Address, GenericArray<u8, N>)>;
 }
 
 /// Perform a lookup of a device descriptor based on the provided address
@@ -207,7 +210,7 @@ where
             *frame_counter += 1;
 
             // Partial 7.2.1e, 7.2.2 is only partially implemented
-            if let Some(key) = context.key_provider.lookup_key(
+            if let Some((_, key)) = context.key_provider.lookup_key(
                 AddressingMode::DstAddrMode,
                 aux_sec_header.key_identifier,
                 header.destination,
@@ -321,16 +324,6 @@ where
     }
 
     if header.has_security() {
-        let (source, source_u64) = match header.source {
-            Some(addr) => match addr {
-                Address::Short(_, _) => {
-                    return Err(SecurityError::NotImplemented);
-                }
-                Address::Extended(_, ext_addr) => (addr, ext_addr.0),
-            },
-            _ => return Err(SecurityError::NoSourceAddress),
-        };
-
         // Check for unimplemented behaviour before performing any operations on the buffer
         match header.frame_type {
             FrameType::Data => {}
@@ -354,11 +347,18 @@ where
 
         let mut taglen = 0;
         // 7.2.3f
-        if let Some(key) = context.key_provider.lookup_key(
+        if let Some((key_address, key)) = context.key_provider.lookup_key(
             AddressingMode::SrcAddrMode,
             aux_sec_header.key_identifier,
             header.source,
         ) {
+            let (source, source_u64) = match key_address {
+                Address::Short(_, _) => {
+                    return Err(SecurityError::KeyLookupAddressTypeMismatch);
+                }
+                Address::Extended(_, ext_addr) => (key_address, ext_addr.0),
+            };
+
             match dev_desc_lo.lookup_device(AddressingMode::SrcAddrMode, source) {
                 Some(device) => {
                     let frame_counter = &mut device.frame_counter;
@@ -487,6 +487,9 @@ pub enum SecurityError {
     UnsupportedSecurity,
     /// The device descriptor that belongs to an address can not be found
     UnavailableDevice,
+    /// The address returned by the specific implementation of [`KeyLookup`] is not
+    /// of type [`Address::Extended`]
+    KeyLookupAddressTypeMismatch,
 }
 
 impl From<byte::Error> for SecurityError {
@@ -545,6 +548,9 @@ impl From<SecurityError> for byte::Error {
             SecurityError::UnavailableDevice => byte::Error::BadInput {
                 err: "UnavailableDevice",
             },
+            SecurityError::KeyLookupAddressTypeMismatch => byte::Error::BadInput {
+                err: "KeyLookupAddressTypeMismatch",
+            },
         }
     }
 }
@@ -568,10 +574,10 @@ mod tests {
             &self,
             _address_mode: AddressingMode,
             _key_identifier: Option<KeyIdentifier>,
-            _device_address: Option<Address>,
-        ) -> Option<GenericArray<u8, U16>> {
+            device_address: Option<Address>,
+        ) -> Option<(Address, GenericArray<u8, U16>)> {
             let key = GenericArray::default();
-            Some(key)
+            Some((device_address.unwrap(), key))
         }
     }
     struct BasicDevDescriptorLookup {

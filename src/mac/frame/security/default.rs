@@ -23,7 +23,7 @@ impl KeyLookup<U16> for Unimplemented {
         _address_mode: AddressingMode,
         _key_identifier: Option<KeyIdentifier>,
         _device_address: Option<Address>,
-    ) -> Option<GenericArray<u8, U16>> {
+    ) -> Option<(Address, GenericArray<u8, U16>)> {
         None
     }
 }
