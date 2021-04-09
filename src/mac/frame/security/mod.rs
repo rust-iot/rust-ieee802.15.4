@@ -175,6 +175,7 @@ pub struct KeyDescriptor {
     pub key: [u8; 16],
 }
 
+#[derive(Clone)]
 /// A partial device descriptor
 pub struct DeviceDescriptor {
     /// The address of this device
@@ -584,8 +585,6 @@ pub enum SecurityError {
     NotImplemented,
     /// Security is enabled, but no auxiliary security header is present
     AuxSecHeaderAbsent,
-    /// Security is disabled, but an auxiliary security header is present
-    AuxSecHeaderPresent,
     /// The type of key identifier mode specified in the security control differs from
     /// the type of key identifier present in the key_identifier field
     KeyIdentifierMismatch,
@@ -640,9 +639,6 @@ impl From<SecurityError> for byte::Error {
             },
             SecurityError::AuxSecHeaderAbsent => byte::Error::BadInput {
                 err: "AuxSecHeaderAbsent",
-            },
-            SecurityError::AuxSecHeaderPresent => byte::Error::BadInput {
-                err: "WriteErAuxSecHeaderPresentror",
             },
             SecurityError::KeyIdentifierMismatch => byte::Error::BadInput {
                 err: "KeyIdentifierMismatch",
@@ -946,5 +942,130 @@ mod tests {
         };
 
         assert_eq!(plaintext_clone, frame.payload);
+    }
+
+    #[test]
+    fn encode_fail_decode_secured_frame() {
+        let (source, destination) = (
+            Address::Extended(PanId(0x111), ExtendedAddress(0x08)),
+            Address::Extended(PanId(0x2222), ExtendedAddress(0x09)),
+        );
+
+        let aux_sec_header = Some(AuxiliarySecurityHeader {
+            control: SecurityControl::new(SecurityLevel::MIC128),
+            frame_counter: FRAME_CTR,
+            key_identifier: None,
+        });
+
+        let plaintext_payload = &mut [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF];
+        let plaintext_len = plaintext_payload.len();
+
+        let frame = get_frame(
+            Some(source),
+            Some(destination),
+            plaintext_payload,
+            aux_sec_header,
+        );
+
+        let mut buf = [0u8; 127];
+        let mut sec_ctx = aes_sec_ctx(FRAME_CTR);
+
+        let len = match frame.try_write(
+            &mut buf,
+            &mut FrameSerDesContext::new(FooterMode::None, Some(&mut sec_ctx)),
+        ) {
+            Ok(size) => size,
+            Err(e) => {
+                assert!(false, "Failed to write secured frame! {:?}", e);
+                // Panic to make the match-arm matcher happy
+                panic!();
+            }
+        };
+
+        // Assert that the length is correct (header field lengths, etc)
+        assert_eq!(len, 2 + 1 + 2 + 8 + 2 + 8 + 1 + 4 + 0 + plaintext_len + 16);
+        let buf = &mut buf[..len];
+
+        //
+        // Test that authentication of frames works
+        //
+
+        // Simulate a bit change
+        buf[33] ^= 0x01;
+
+        let device_desc = DeviceDescriptor {
+            address: Address::Extended(PanId(511), ExtendedAddress(0xAAFFAAFFAAFFu64)),
+            frame_counter: FRAME_CTR,
+            exempt: false,
+        };
+
+        match Frame::try_read_and_unsecure(
+            buf,
+            &mut FrameSerDesContext::new(FooterMode::None, Some(&mut sec_ctx)),
+            &mut BasicDevDescriptorLookup::new(device_desc.clone()),
+        ) {
+            Ok(_) => assert!(false, "Successfully unsecured an altered frame!"),
+            Err(e) => match e {
+                SecurityError::TransformationError => {}
+                _ => {
+                    assert!(false, "Got an error different from TransformationError");
+                    // Panic to make the match-arm matcher happy
+                    panic!();
+                }
+            },
+        };
+
+        // Unflip bit
+        buf[33] ^= 0x01;
+
+        //
+        // Test counter errors
+        //
+        let device_desc = DeviceDescriptor {
+            address: Address::Extended(PanId(511), ExtendedAddress(0xAAFFAAFFAAFFu64)),
+            frame_counter: FRAME_CTR + 5,
+            exempt: false,
+        };
+
+        match Frame::try_read_and_unsecure(
+            buf,
+            &mut FrameSerDesContext::new(FooterMode::None, Some(&mut sec_ctx)),
+            &mut BasicDevDescriptorLookup::new(device_desc),
+        ) {
+            Ok(_) => assert!(false, "Successfully unsecured a replayed frame!"),
+            Err(e) => match e {
+                SecurityError::CounterError => {}
+                _ => {
+                    assert!(false, "Got an error different from CounterError");
+                    // Panic to make the match-arm matcher happy
+                    panic!();
+                }
+            },
+        };
+
+        let device_desc = DeviceDescriptor {
+            address: Address::Extended(PanId(511), ExtendedAddress(0xAAFFAAFFAAFFu64)),
+            frame_counter: 0xFFFFFFFF,
+            exempt: false,
+        };
+
+        match Frame::try_read_and_unsecure(
+            buf,
+            &mut FrameSerDesContext::new(FooterMode::None, Some(&mut sec_ctx)),
+            &mut BasicDevDescriptorLookup::new(device_desc),
+        ) {
+            Ok(_) => assert!(
+                false,
+                "Successfully unsecured a frame with overflowing counter!"
+            ),
+            Err(e) => match e {
+                SecurityError::CounterError => {}
+                _ => {
+                    assert!(false, "Got an error different from CounterError");
+                    // Panic to make the match-arm matcher happy
+                    panic!();
+                }
+            },
+        };
     }
 }
