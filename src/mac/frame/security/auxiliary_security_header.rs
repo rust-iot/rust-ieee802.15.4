@@ -4,7 +4,8 @@ use super::{KeyIdentifierMode, SecurityControl};
 use byte::{BytesExt, TryRead, TryWrite, LE};
 
 /// A struct describing the Auxiliary Security Header
-/// See: section 7.4 of the 802.15.4-2011 standard
+///
+/// See: section 7.4
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct AuxiliarySecurityHeader {
     /// The control field in the Auxiliary Security Header

@@ -22,10 +22,10 @@ use ccm::aead::generic_array::typenum::consts::U16;
 use cipher::{BlockCipher, NewBlockCipher};
 use header::FrameType;
 pub use header::Header;
-pub use security::AuxiliarySecurityHeader;
 
 use self::security::{
-    default::Unimplemented, DeviceDescriptorLookup, KeyDescriptorLookup, SecurityContext, SecurityError,
+    default::Unimplemented, DeviceDescriptorLookup, KeyDescriptorLookup, SecurityContext,
+    SecurityError,
 };
 
 /// An IEEE 802.15.4 MAC frame
@@ -165,7 +165,7 @@ pub struct Frame<'p> {
     /// This is a 2-byte CRC checksum.
     ///
     /// When creating an instance of this struct for encoding, you don't
-    /// necessarily need to write an actual CRC checksum here. [`Frame::encode`]
+    /// necessarily need to write an actual CRC checksum here. [`Frame::try_write`]
     /// can omit writing this checksum, for example if the transceiver hardware
     /// automatically adds the checksum for you.
     pub footer: [u8; 2],
@@ -272,7 +272,7 @@ impl<'a> Frame<'a> {
     /// as the FCS has to be calculated over the payload before it is unsecured,
     /// which isn't implemented yet
     ///
-    /// Use FrameSerDexContext::no_security() and [`security::default::Unimplemented`] if you
+    /// Use [`FrameSerDesContext::no_security`] and/or [`Unimplemented`] if you
     /// do not want to use any security, or simply [`Frame::try_read`]
     pub fn try_read_and_unsecure<AEADBLKCIPH, KEYDESCLO, DEVDESCLO>(
         buf: &'a mut [u8],
@@ -433,7 +433,7 @@ pub enum DecodeError {
     /// The frame type is invalid
     InvalidFrameType(u8),
 
-    /// Security is enabled on the frame, and `try_read` is called. [`Frame::try_read_with_unsecure`] should be called instead.
+    /// Security is enabled on the frame, and `try_read` is called. [`Frame::try_read_and_unsecure`] should be called instead.
     SecurityEnabled,
 
     /// The frame's address mode is invalid
@@ -487,7 +487,7 @@ impl From<DecodeError> for byte::Error {
                 err: "AuxSecHeaderAbsent",
             },
             DecodeError::SecurityEnabled => byte::Error::BadInput {
-                err: "SecurityEnabled (use Frame::try_read_with_unsecure)",
+                err: "SecurityEnabled (use Frame::try_read_and_unsecure)",
             },
         }
     }

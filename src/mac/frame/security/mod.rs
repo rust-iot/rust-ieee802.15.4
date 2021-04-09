@@ -1,10 +1,9 @@
-//! All of the fields and their contents that are used in the
-//! Auxiliary Security header can be found in this module.
+//! Partial implementation of security for 802.4.15 frames.
 //!
-//! All of the below data structures are defined in section 7.4 of the 802.15.4-2011 standard
+//! For specifications of the procedures and structures, see section 7.4 of the 802.15.4-2011 standard
 
 mod auxiliary_security_header;
-pub(crate) mod default;
+pub mod default;
 mod security_control;
 
 use super::{FooterMode, Frame, Header};
@@ -483,7 +482,7 @@ pub enum SecurityError {
     UnsupportedSecurity,
     /// The device descriptor that belongs to an address can not be found
     UnavailableDevice,
-    /// The address returned by the specific implementation of [`KeyLookup`] is not
+    /// The address returned by the specific implementation of [`KeyDescriptorLookup`] is not
     /// of type [`Address::Extended`]
     KeyLookupAddressTypeMismatch,
 }

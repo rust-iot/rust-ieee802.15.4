@@ -1,5 +1,5 @@
-//! Provides a default AEAD to satisfy the type requirements for (de-)serializing frames without
-//! any security
+//! Provides a default AEAD, key descriptor lookup, and device descriptor lookups
+//!  to satisfy the type requirements for (de-)serializing frames without providing any security
 
 use super::{
     auxiliary_security_header::KeyIdentifier, AddressingMode, DeviceDescriptor,
@@ -15,8 +15,8 @@ use cipher::{
     BlockCipher, NewBlockCipher,
 };
 
-/// A struct that fullfills all of the type checks, but is not actually capable of
-/// performing any of the operations
+/// A struct that fullfills all of the trait bounds for serialization and deserializtion, but is not
+/// actually capable of performing any of the operations
 pub struct Unimplemented;
 
 impl KeyDescriptorLookup<U16> for Unimplemented {
