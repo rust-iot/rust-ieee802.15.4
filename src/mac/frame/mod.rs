@@ -25,7 +25,7 @@ pub use header::Header;
 pub use security::AuxiliarySecurityHeader;
 
 use self::security::{
-    default::Unimplemented, DeviceDescriptorLookup, KeyLookup, SecurityContext, SecurityError,
+    default::Unimplemented, DeviceDescriptorLookup, KeyDescriptorLookup, SecurityContext, SecurityError,
 };
 
 /// An IEEE 802.15.4 MAC frame
@@ -176,7 +176,7 @@ pub struct Frame<'p> {
 pub struct FrameSerDesContext<'a, AEADBLKCIPH, KEYDESCLO>
 where
     AEADBLKCIPH: NewBlockCipher + BlockCipher<BlockSize = U16>,
-    KEYDESCLO: KeyLookup<AEADBLKCIPH::KeySize>,
+    KEYDESCLO: KeyDescriptorLookup<AEADBLKCIPH::KeySize>,
 {
     /// The footer mode to use when handling frames
     footer_mode: FooterMode,
@@ -187,7 +187,7 @@ where
 impl<'a, AEADBLKCIPH, KEYDESCLO> FrameSerDesContext<'a, AEADBLKCIPH, KEYDESCLO>
 where
     AEADBLKCIPH: NewBlockCipher + BlockCipher<BlockSize = U16>,
-    KEYDESCLO: KeyLookup<AEADBLKCIPH::KeySize>,
+    KEYDESCLO: KeyDescriptorLookup<AEADBLKCIPH::KeySize>,
 {
     /// Create a new frame serialization/deserialization context with the specified footer mode
     /// and security context
@@ -217,7 +217,7 @@ impl<AEADBLKCIPH, KEYDESCLO> TryWrite<&mut FrameSerDesContext<'_, AEADBLKCIPH, K
     for Frame<'_>
 where
     AEADBLKCIPH: NewBlockCipher + BlockCipher<BlockSize = U16>,
-    KEYDESCLO: KeyLookup<AEADBLKCIPH::KeySize>,
+    KEYDESCLO: KeyDescriptorLookup<AEADBLKCIPH::KeySize>,
 {
     fn try_write(
         self,
@@ -281,7 +281,7 @@ impl<'a> Frame<'a> {
     ) -> Result<(Frame<'a>, usize), SecurityError>
     where
         AEADBLKCIPH: NewBlockCipher + BlockCipher<BlockSize = U16>,
-        KEYDESCLO: KeyLookup<AEADBLKCIPH::KeySize>,
+        KEYDESCLO: KeyDescriptorLookup<AEADBLKCIPH::KeySize>,
         DEVDESCLO: DeviceDescriptorLookup,
     {
         let offset = &mut 0;

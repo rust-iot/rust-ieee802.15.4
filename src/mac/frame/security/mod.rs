@@ -22,9 +22,7 @@ use crate::mac::{Address, FrameType, FrameVersion};
 use super::{FooterMode, Frame, Header};
 
 mod auxiliary_security_header;
-pub use auxiliary_security_header::{
-    AuxiliarySecurityHeader, KeyDescriptor, KeyIdentifier, KeySource,
-};
+pub use auxiliary_security_header::{AuxiliarySecurityHeader, KeyIdentifier, KeySource};
 
 pub(crate) mod default;
 
@@ -53,11 +51,14 @@ pub struct DeviceDescriptor {
 }
 
 /// Used to create a KeyDescriptor from a KeyIdentifier and device address
-pub trait KeyLookup<N>
+pub trait KeyDescriptorLookup<N>
 where
     N: ArrayLength<u8>,
 {
     /// Look up a key from a key identifier and a device address
+    ///
+    /// This is the interface that is used to perform procedure 7.2.2, but an implementation
+    /// of the interface is not provided
     ///
     /// This function should return None if the key lookup fails (i.e. a failed status),
     /// and some if the lookup succeeds, where the Option contains the KeyDescriptor that was
@@ -65,7 +66,7 @@ where
     ///
     /// The address that is returned _must_ be of the type [`Address::Extended`], as it is used
     /// for generating the nonce
-    fn lookup_key(
+    fn lookup_key_descriptor(
         &self,
         address_mode: AddressingMode,
         key_identifier: Option<KeyIdentifier>,
@@ -95,7 +96,7 @@ pub trait DeviceDescriptorLookup {
 pub struct SecurityContext<AEADBLKCIPH, KEYDESCLO>
 where
     AEADBLKCIPH: NewBlockCipher + BlockCipher<BlockSize = U16>,
-    KEYDESCLO: KeyLookup<AEADBLKCIPH::KeySize>,
+    KEYDESCLO: KeyDescriptorLookup<AEADBLKCIPH::KeySize>,
 {
     /// The current frame counter
     pub frame_counter: u32,
@@ -141,7 +142,7 @@ pub(crate) fn secure_frame<'a, AEADBLKCIPH, KEYDESCLO>(
 ) -> Result<usize, SecurityError>
 where
     AEADBLKCIPH: NewBlockCipher + BlockCipher<BlockSize = U16>,
-    KEYDESCLO: KeyLookup<AEADBLKCIPH::KeySize>,
+    KEYDESCLO: KeyDescriptorLookup<AEADBLKCIPH::KeySize>,
 {
     match footer_mode {
         FooterMode::None => {}
@@ -210,7 +211,7 @@ where
             *frame_counter += 1;
 
             // Partial 7.2.1e, 7.2.2 is only partially implemented
-            if let Some((_, key)) = context.key_provider.lookup_key(
+            if let Some((_, key)) = context.key_provider.lookup_key_descriptor(
                 AddressingMode::DstAddrMode,
                 aux_sec_header.key_identifier,
                 header.destination,
@@ -310,7 +311,7 @@ pub(crate) fn unsecure_frame<'a, AEADBLKCIPH, KEYDESCLO, DEVDESCLO>(
 ) -> Result<usize, SecurityError>
 where
     AEADBLKCIPH: NewBlockCipher + BlockCipher<BlockSize = U16>,
-    KEYDESCLO: KeyLookup<AEADBLKCIPH::KeySize>,
+    KEYDESCLO: KeyDescriptorLookup<AEADBLKCIPH::KeySize>,
     DEVDESCLO: DeviceDescriptorLookup,
 {
     match footer_mode {
@@ -347,7 +348,7 @@ where
 
         let mut taglen = 0;
         // 7.2.3f
-        if let Some((key_address, key)) = context.key_provider.lookup_key(
+        if let Some((key_address, key)) = context.key_provider.lookup_key_descriptor(
             AddressingMode::SrcAddrMode,
             aux_sec_header.key_identifier,
             header.source,
@@ -569,8 +570,8 @@ mod tests {
 
     struct StaticKeyLookup();
 
-    impl KeyLookup<U16> for StaticKeyLookup {
-        fn lookup_key(
+    impl KeyDescriptorLookup<U16> for StaticKeyLookup {
+        fn lookup_key_descriptor(
             &self,
             _address_mode: AddressingMode,
             _key_identifier: Option<KeyIdentifier>,

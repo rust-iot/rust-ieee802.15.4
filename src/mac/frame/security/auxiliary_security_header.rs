@@ -137,9 +137,3 @@ pub enum KeySource {
     /// A key source that is 8 octets long
     Long(u64),
 }
-
-/// A partial key descriptor
-pub struct KeyDescriptor {
-    /// The key contained by this key descriptor
-    pub key: [u8; 16],
-}

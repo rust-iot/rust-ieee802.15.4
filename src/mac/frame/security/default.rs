@@ -10,15 +10,16 @@ use cipher::{BlockCipher, NewBlockCipher};
 use crate::mac::Address;
 
 use super::{
-    auxiliary_security_header::KeyIdentifier, AddressingMode, DeviceDescriptorLookup, KeyLookup,
+    auxiliary_security_header::KeyIdentifier, AddressingMode, DeviceDescriptorLookup,
+    KeyDescriptorLookup,
 };
 
 /// A struct that fullfills all of the type checks, but is not actually capable of
 /// performing any of the operations
 pub struct Unimplemented;
 
-impl KeyLookup<U16> for Unimplemented {
-    fn lookup_key(
+impl KeyDescriptorLookup<U16> for Unimplemented {
+    fn lookup_key_descriptor(
         &self,
         _address_mode: AddressingMode,
         _key_identifier: Option<KeyIdentifier>,
