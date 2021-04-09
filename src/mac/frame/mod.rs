@@ -25,7 +25,7 @@ pub use header::Header;
 pub use security::AuxiliarySecurityHeader;
 
 use self::security::{
-    default::*, DeviceDescriptorLookup, KeyLookup, SecurityContext, SecurityError,
+    default::Unimplemented, DeviceDescriptorLookup, KeyLookup, SecurityContext, SecurityError,
 };
 
 /// An IEEE 802.15.4 MAC frame

@@ -11,7 +11,7 @@ use super::{DeviceDescriptorLookup, KeyLookup};
 
 /// A struct that fullfills all of the type checks, but is not actually capable of
 /// performing any of the operations
-pub struct Unimplemented();
+pub struct Unimplemented;
 
 impl KeyLookup<U16> for Unimplemented {
     fn lookup_key(

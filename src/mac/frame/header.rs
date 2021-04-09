@@ -7,9 +7,9 @@
 use byte::{check_len, BytesExt, TryRead, TryWrite, LE};
 use hash32_derive::Hash32;
 
-use super::frame_control::*;
+use super::frame_control::{mask, offset};
 pub use super::frame_control::{AddressMode, FrameType, FrameVersion};
-use super::security::*;
+use super::security::AuxiliarySecurityHeader;
 use super::DecodeError;
 
 /// MAC frame header
