@@ -341,7 +341,7 @@ where
                         let aead = Ccm::<AEADBLKCIPH, $tag_size, U13>::new(&key);
                         let auth_enc_part = match footer_mode {
                             FooterMode::None => &mut buffer[..offset],
-                            FooterMode::Explicit => unimplemented!(),
+                            FooterMode::Explicit => return Err(SecurityError::NotImplemented),
                         };
 
                         let tag = match sec_l {
@@ -438,7 +438,7 @@ where
         // Check for unimplemented behaviour before performing any operations on the buffer
         match header.frame_type {
             FrameType::Data => {}
-            _ => panic!(),
+            _ => return Err(SecurityError::NotImplemented),
         }
 
         // 7.2.3b
