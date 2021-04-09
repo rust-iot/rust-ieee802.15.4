@@ -238,6 +238,20 @@ where
     pub phantom_data: PhantomData<AEADBLKCIPH>,
 }
 
+fn calculate_nonce(source_addr: u64, frame_counter: u32, sec_level: SecurityLevel) -> [u8; 13] {
+    let mut output = [0u8; 13];
+    for i in 0..8 {
+        output[i] = (source_addr >> (8 * i) & 0xFF) as u8;
+    }
+
+    for i in 0..4 {
+        output[i + 8] = (frame_counter >> (8 * i) & 0xFF) as u8;
+    }
+
+    output[12] = sec_level.to_bits();
+    output
+}
+
 /// Appends the secured payload of a [Frame] to the provided buffer, secured according to the
 /// security settings specified in the [Frame]'s [`super::Header`] and [AuxiliarySecurityHeader].
 ///
@@ -261,8 +275,13 @@ where
 
     if header.security {
         let frame_counter = &mut context.frame_counter;
-        let destination = match header.destination {
-            Some(addr) => addr,
+        let source = match header.source {
+            Some(addr) => match addr {
+                Address::Short(_, _) => {
+                    return Err(SecurityError::NotImplemented);
+                }
+                Address::Extended(_, ext_addr) => ext_addr.0,
+            },
             _ => return Err(SecurityError::NoSourceAddress),
         };
 
@@ -271,19 +290,6 @@ where
             FrameType::Data => {}
             _ => return Err(SecurityError::NotImplemented),
         }
-
-        let mut nonce = [0u8; 13];
-        match destination {
-            // Not implemented because currently no functionality for determining the
-            // extended address with which a short address is associated exists
-            Address::Short(..) => return Err(SecurityError::NotImplemented),
-            Address::Extended(_, addr) => {
-                // Generate the nonce as described in 7.2.2
-                for i in 0..7 {
-                    nonce[i] = (addr.0 >> (8 * i) & 0xFF) as u8;
-                }
-            }
-        };
 
         // Procedure 7.2.1
         if let Some(aux_sec_header) = header.auxiliary_security_header {
@@ -310,6 +316,14 @@ where
             if *frame_counter == 0xFFFFFFFF {
                 return Err(SecurityError::CounterError);
             }
+
+            let nonce = calculate_nonce(
+                source,
+                *frame_counter,
+                aux_sec_header.control.security_level,
+            );
+
+            *frame_counter += 1;
 
             // Partial 7.2.1e, 7.2.2 is only partially implemented
             if let Some(key) = context.key_provider.lookup_key(
@@ -415,9 +429,14 @@ where
     DEVDESCLO: DeviceDescriptorLookup,
 {
     if header.security {
-        let source = match header.source {
-            Some(addr) => addr,
-            _ => return Err(SecurityError::NoDestinationAddress),
+        let (source, source_u64) = match header.source {
+            Some(addr) => match addr {
+                Address::Short(_, _) => {
+                    return Err(SecurityError::NotImplemented);
+                }
+                Address::Extended(_, ext_addr) => (addr, ext_addr.0),
+            },
+            _ => return Err(SecurityError::NoSourceAddress),
         };
 
         // Check for unimplemented behaviour before performing any operations on the buffer
@@ -425,19 +444,6 @@ where
             FrameType::Data => {}
             _ => panic!(),
         }
-
-        let mut nonce = [0u8; 13];
-        match source {
-            // Not implemented because currently no functionality for determining the
-            // extended address with which a short address is associated exists
-            Address::Short(..) => panic!(),
-            Address::Extended(_, addr) => {
-                // Generate the nonce as described in 7.2.2
-                for i in 0..7 {
-                    nonce[i] = (addr.0 >> (8 * i) & 0xFF) as u8;
-                }
-            }
-        };
 
         // 7.2.3b
         if header.version == FrameVersion::Ieee802154_2003 {
@@ -469,6 +475,12 @@ where
                     {
                         return Err(SecurityError::CounterError);
                     }
+
+                    let nonce = calculate_nonce(
+                        source_u64,
+                        aux_sec_header.frame_counter,
+                        aux_sec_header.control.security_level,
+                    );
 
                     *frame_counter = aux_sec_header.frame_counter;
 
@@ -701,8 +713,9 @@ mod tests {
     }
 
     const STATIC_KEY_LOOKUP: StaticKeyLookup = StaticKeyLookup();
+    const FRAME_CTR: u32 = 0x03030303;
 
-    fn c8p1305_sec_ctx<'a>(frame_counter: u32) -> SecurityContext<Aes128, StaticKeyLookup> {
+    fn aes_sec_ctx<'a>(frame_counter: u32) -> SecurityContext<Aes128, StaticKeyLookup> {
         SecurityContext {
             frame_counter,
             key_provider: STATIC_KEY_LOOKUP,
@@ -711,19 +724,12 @@ mod tests {
     }
 
     fn get_frame<'a>(
-        mut source: Option<Address>,
-        mut destination: Option<Address>,
+        source: Option<Address>,
+        destination: Option<Address>,
         security: bool,
         payload: &'a [u8],
         auxiliary_security_header: Option<AuxiliarySecurityHeader>,
-        send: bool,
     ) -> Frame<'a> {
-        if send {
-            let backup = source.clone();
-            source = destination;
-            destination = backup;
-        }
-
         Frame {
             header: Header {
                 frame_type: FrameType::Data,
@@ -744,10 +750,10 @@ mod tests {
     }
 
     fn get_rand_addrpair() -> (Address, Address) {
-        let src_u64 = rand::thread_rng().gen();
-        let dest_u64 = rand::thread_rng().gen();
-        let source = Address::Extended(PanId(511), ExtendedAddress(dest_u64));
-        let destination = Address::Extended(PanId(255), ExtendedAddress(src_u64));
+        let src_u64: u64 = rand::thread_rng().gen();
+        let dest_u64: u64 = rand::thread_rng().gen();
+        let source = Address::Extended(PanId(0x111), ExtendedAddress(src_u64));
+        let destination = Address::Extended(PanId(0x2222), ExtendedAddress(dest_u64));
         (source, destination)
     }
 
@@ -756,11 +762,8 @@ mod tests {
             let (source, destination) = get_rand_addrpair();
 
             let aux_sec_header = Some(AuxiliarySecurityHeader {
-                control: SecurityControl {
-                    security_level: $level,
-                    key_id_mode: KeyIdentifierMode::None,
-                },
-                frame_counter: 1337,
+                control: SecurityControl::new($level),
+                frame_counter: FRAME_CTR,
                 key_identifier: Some(KeyIdentifier {
                     key_source: None,
                     key_index: 0,
@@ -776,14 +779,13 @@ mod tests {
                 true,
                 plaintext_payload,
                 aux_sec_header,
-                true,
             );
 
             let mut storage = [0u8; 64];
 
             let buf = &mut storage[..plaintext_len + $level.get_mic_octet_size() as usize];
 
-            let mut sec_ctx = c8p1305_sec_ctx(1000);
+            let mut sec_ctx = aes_sec_ctx(FRAME_CTR);
             let write_res = security::secure_frame(frame, &mut sec_ctx, FooterMode::None, buf);
 
             match write_res {
@@ -793,18 +795,11 @@ mod tests {
                 Ok(_) => {}
             }
 
-            let mut frame = get_frame(
-                Some(source),
-                Some(destination),
-                true,
-                &[],
-                aux_sec_header,
-                false,
-            );
+            let mut frame = get_frame(Some(source), Some(destination), true, &[], aux_sec_header);
 
             let device_desc = DeviceDescriptor {
                 address: Address::Extended(PanId(511), ExtendedAddress(0xAAFFAAFFAAFFu64)),
-                frame_counter: 999,
+                frame_counter: FRAME_CTR,
                 exempt: false,
             };
 
@@ -842,11 +837,10 @@ mod tests {
             false,
             &[0xAA, 0xBB, 0xCC, 0xDD, 0xFE, 0xDE],
             None,
-            true,
         );
 
         let mut buf = [0u8; 127];
-        let mut sec_ctx = c8p1305_sec_ctx(1000);
+        let mut sec_ctx = aes_sec_ctx(FRAME_CTR);
         let write_res = security::secure_frame(frame, &mut sec_ctx, FooterMode::None, &mut buf);
         match write_res {
             Ok(_) => {}
@@ -890,5 +884,65 @@ mod tests {
     #[test]
     fn test_encmic128() {
         test_security_level!(SecurityLevel::ENCMIC128);
+    }
+
+    #[test]
+    fn encode_decode_secured_frame() {
+        let (source, destination) = get_rand_addrpair();
+
+        let aux_sec_header = Some(AuxiliarySecurityHeader {
+            control: SecurityControl::new(SecurityLevel::ENCMIC32),
+            frame_counter: FRAME_CTR,
+            key_identifier: None,
+        });
+
+        let plaintext_payload = &mut [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF];
+        let plaintext_len = plaintext_payload.len();
+
+        let plaintext_clone = plaintext_payload.clone();
+
+        let frame = get_frame(
+            Some(source),
+            Some(destination),
+            true,
+            plaintext_payload,
+            aux_sec_header,
+        );
+
+        let mut buf = [0u8; 127];
+        let mut sec_ctx = aes_sec_ctx(FRAME_CTR);
+
+        let len = match frame.try_write(
+            &mut buf,
+            &mut FrameSerDesContext::new(FooterMode::None, Some(&mut sec_ctx)),
+        ) {
+            Ok(size) => size,
+            Err(e) => {
+                assert!(false, "Failed to write secured frame! {:?}", e);
+                // Panic to make the match-arm matcher happy
+                panic!();
+            }
+        };
+        assert_eq!(len, 2 + 1 + 2 + 8 + 2 + 8 + 1 + 4 + 0 + plaintext_len + 4);
+
+        let device_desc = DeviceDescriptor {
+            address: Address::Extended(PanId(511), ExtendedAddress(0xAAFFAAFFAAFFu64)),
+            frame_counter: FRAME_CTR,
+            exempt: false,
+        };
+
+        let frame = match Frame::try_read_and_unsecure(
+            &mut buf[..len],
+            &mut FrameSerDesContext::new(FooterMode::None, Some(&mut sec_ctx)),
+            &mut BasicDevDescriptorLookup::new(device_desc),
+        ) {
+            Ok((frame, _)) => frame,
+            Err(e) => {
+                assert!(false, "Could not unsecure frame! {:?}", e);
+                panic!();
+            }
+        };
+
+        assert_eq!(plaintext_clone, frame.payload);
     }
 }

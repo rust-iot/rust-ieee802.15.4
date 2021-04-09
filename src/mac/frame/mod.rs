@@ -238,7 +238,8 @@ where
         let mut security_enabled = false;
 
         if let Some(ctx) = context.security_ctx.as_mut() {
-            let write_secured = security::secure_frame(self, ctx, context.footer_mode, bytes);
+            let write_secured =
+                security::secure_frame(self, ctx, context.footer_mode, &mut bytes[*offset..]);
             match write_secured {
                 Ok(len) => {
                     security_enabled = true;
@@ -293,7 +294,6 @@ impl<'a> Frame<'a> {
 
         let offset = &mut 0;
         let header: Header = buf.read(offset)?;
-        let content_index = *offset - 1;
         let content = buf.read_with(offset, &header)?;
 
         let mut tag_size = 0;
@@ -302,7 +302,7 @@ impl<'a> Frame<'a> {
             if let Some(sec_ctx) = ctx.security_ctx.as_mut() {
                 tag_size = match security::unsecure_frame(
                     &header,
-                    &mut buf[content_index..],
+                    &mut buf[*offset..],
                     sec_ctx,
                     ctx.footer_mode,
                     dev_desc_lo,
