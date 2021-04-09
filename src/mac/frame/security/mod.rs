@@ -273,7 +273,7 @@ where
     let mut offset = 0 as usize;
     let header = frame.header;
 
-    if header.security {
+    if header.has_security() {
         let frame_counter = &mut context.frame_counter;
         let source = match header.source {
             Some(addr) => match addr {
@@ -395,11 +395,7 @@ where
             return Err(SecurityError::AuxSecHeaderAbsent);
         }
     } else {
-        if header.auxiliary_security_header.is_some() {
-            return Err(SecurityError::AuxSecHeaderPresent);
-        } else {
-            return Err(SecurityError::SecurityNotEnabled);
-        }
+        return Err(SecurityError::SecurityNotEnabled);
     }
 }
 
@@ -428,7 +424,7 @@ where
     KEYDESCLO: KeyLookup<AEADBLKCIPH::KeySize>,
     DEVDESCLO: DeviceDescriptorLookup,
 {
-    if header.security {
+    if header.has_security() {
         let (source, source_u64) = match header.source {
             Some(addr) => match addr {
                 Address::Short(_, _) => {
@@ -552,11 +548,7 @@ where
         }
         return Ok(taglen);
     } else {
-        if header.auxiliary_security_header.is_some() {
-            return Err(SecurityError::AuxSecHeaderPresent);
-        } else {
-            return Err(SecurityError::SecurityNotEnabled);
-        }
+        return Err(SecurityError::SecurityNotEnabled);
     }
 }
 
@@ -726,14 +718,12 @@ mod tests {
     fn get_frame<'a>(
         source: Option<Address>,
         destination: Option<Address>,
-        security: bool,
         payload: &'a [u8],
         auxiliary_security_header: Option<AuxiliarySecurityHeader>,
     ) -> Frame<'a> {
         Frame {
             header: Header {
                 frame_type: FrameType::Data,
-                security,
                 frame_pending: false,
                 ack_request: false,
                 pan_id_compress: false,
@@ -776,7 +766,6 @@ mod tests {
             let frame = get_frame(
                 Some(source),
                 Some(destination),
-                true,
                 plaintext_payload,
                 aux_sec_header,
             );
@@ -795,7 +784,7 @@ mod tests {
                 Ok(_) => {}
             }
 
-            let mut frame = get_frame(Some(source), Some(destination), true, &[], aux_sec_header);
+            let mut frame = get_frame(Some(source), Some(destination), &[], aux_sec_header);
 
             let device_desc = DeviceDescriptor {
                 address: Address::Extended(PanId(511), ExtendedAddress(0xAAFFAAFFAAFFu64)),
@@ -834,7 +823,6 @@ mod tests {
         let frame = get_frame(
             Some(source),
             Some(destination),
-            false,
             &[0xAA, 0xBB, 0xCC, 0xDD, 0xFE, 0xDE],
             None,
         );
@@ -904,7 +892,6 @@ mod tests {
         let frame = get_frame(
             Some(source),
             Some(destination),
-            true,
             plaintext_payload,
             aux_sec_header,
         );

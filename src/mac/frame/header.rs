@@ -23,9 +23,6 @@ pub struct Header {
     /// Frame Type
     pub frame_type: FrameType,
 
-    /// Whether the frame is or should be secured
-    pub security: bool,
-
     /// Frame Pending
     ///
     /// The Frame Pending field shall be set to `true` if the device sending the frame has more data
@@ -69,7 +66,8 @@ pub struct Header {
     /// Source Address
     pub source: Option<Address>,
 
-    /// Auxiliary security header, only Some if [`Header.security`] is true
+    /// Auxiliary security header. If security is enabled in this header,
+    /// this field will be Some, else it will be None
     pub auxiliary_security_header: Option<AuxiliarySecurityHeader>,
 }
 
@@ -93,8 +91,12 @@ impl Header {
                 _ => {}
             }
         }
-
         len
+    }
+
+    /// Whether this header has security enabled
+    pub fn has_security(&self) -> bool {
+        self.auxiliary_security_header.is_some()
     }
 }
 
@@ -180,7 +182,6 @@ impl TryRead<'_> for Header {
 
         let header = Header {
             frame_type,
-            security,
             frame_pending,
             ack_request,
             pan_id_compress,
@@ -201,8 +202,10 @@ impl TryWrite for Header {
         let dest_addr_mode = AddressMode::from(self.destination);
         let src_addr_mode = AddressMode::from(self.source);
 
+        let security = self.has_security();
+
         let frame_control_raw = (self.frame_type as u16) << offset::FRAME_TYPE
-            | (self.security as u16) << offset::SECURITY
+            | (security as u16) << offset::SECURITY
             | (self.frame_pending as u16) << offset::PENDING
             | (self.ack_request as u16) << offset::ACK
             | (self.pan_id_compress as u16) << offset::PAN_ID_COMPRESS

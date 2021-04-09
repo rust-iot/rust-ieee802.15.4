@@ -228,7 +228,7 @@ where
         let mode = &context.footer_mode;
         let offset = &mut 0;
 
-        if self.header.security && context.security_ctx.is_none() {
+        if self.header.has_security() && context.security_ctx.is_none() {
             return Err(EncodeError::MissingSecurityCtx)?;
         }
 
@@ -298,7 +298,7 @@ impl<'a> Frame<'a> {
 
         let mut tag_size = 0;
 
-        if header.security {
+        if header.has_security() {
             if let Some(sec_ctx) = ctx.security_ctx.as_mut() {
                 tag_size = match security::unsecure_frame(
                     &header,
@@ -342,7 +342,7 @@ impl<'a> TryRead<'a, FooterMode> for Frame<'a> {
         let header: Header = bytes.read(offset)?;
         let content = bytes.read_with(offset, &header)?;
 
-        if header.security {
+        if header.has_security() {
             return Err(DecodeError::SecurityEnabled)?;
         }
 
@@ -537,7 +537,7 @@ mod tests {
         let frame: Frame = data.read_with(&mut 0, FooterMode::None).unwrap();
         let hdr = frame.header;
         assert_eq!(hdr.frame_type, FrameType::Data);
-        assert_eq!(hdr.security, false);
+        assert_eq!(hdr.has_security(), false);
         assert_eq!(hdr.frame_pending, false);
         assert_eq!(hdr.ack_request, false);
         assert_eq!(hdr.pan_id_compress, true);
@@ -574,7 +574,7 @@ mod tests {
         let frame: Frame = data.read_with(&mut 0, FooterMode::None).unwrap();
         let hdr = frame.header;
         assert_eq!(hdr.frame_type, FrameType::Data);
-        assert_eq!(hdr.security, false);
+        assert_eq!(hdr.has_security(), false);
         assert_eq!(hdr.frame_pending, false);
         assert_eq!(hdr.ack_request, true);
         assert_eq!(hdr.pan_id_compress, false);
@@ -598,7 +598,6 @@ mod tests {
         let frame = Frame {
             header: Header {
                 frame_type: FrameType::Data,
-                security: false,
                 frame_pending: false,
                 ack_request: false,
                 pan_id_compress: false,
@@ -632,7 +631,6 @@ mod tests {
         let frame = Frame {
             header: Header {
                 frame_type: FrameType::Beacon,
-                security: false,
                 frame_pending: true,
                 ack_request: false,
                 pan_id_compress: false,
@@ -683,7 +681,6 @@ mod tests {
         let frame = Frame {
             header: Header {
                 frame_type: FrameType::Acknowledgement,
-                security: false,
                 frame_pending: false,
                 ack_request: false,
                 pan_id_compress: true,
@@ -723,7 +720,6 @@ mod tests {
         let frame = Frame {
             header: Header {
                 frame_type: FrameType::MacCommand,
-                security: false,
                 frame_pending: false,
                 ack_request: true,
                 pan_id_compress: false,
