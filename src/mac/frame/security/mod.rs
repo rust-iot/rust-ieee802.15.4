@@ -1,7 +1,56 @@
 //! Partial implementation of security for 802.4.15 frames.
 //!
-//! For specifications of the procedures and structures, see section 7.4 of the 802.15.4-2011 standard
-
+//! For specifications of the procedures and structures, see section 7.4 of the 802.15.4-2011 standard.
+///
+/// # Example on how to use frames with security
+/// Note that the example below is _very unsecure_, and should not be used in any production setting
+///
+/// ```rust
+/// struct StaticKeyLookup();
+///
+/// impl KeyDescriptorLookup<U16> for StaticKeyLookup {
+///     fn lookup_key_descriptor(
+///         &self,
+///         _address_mode: AddressingMode,
+///         _key_identifier: Option<KeyIdentifier>,
+///         device_address: Option<Address>,
+///     ) -> Option<(Address, GenericArray<u8, U16>)> {
+///         let key = GenericArray::default();
+///         Some((device_address.unwrap(), key))
+///     }
+/// }
+/// struct BasicDevDescriptorLookup<'a> {
+///     descriptor: &'a mut DeviceDescriptor,
+/// }
+///
+/// impl<'a> BasicDevDescriptorLookup<'a> {
+///     pub fn new(descriptor: &'a mut DeviceDescriptor) -> Self {
+///         Self { descriptor }
+///     }
+/// }
+///
+/// impl<'a> DeviceDescriptorLookup for BasicDevDescriptorLookup<'a> {
+///     fn lookup_device(
+///         &mut self,
+///         _addressing_mode: AddressingMode,
+///         _address: Address,
+///     ) -> Option<&mut DeviceDescriptor> {
+///         Some(self.descriptor)
+///     }
+/// }
+///
+/// const STATIC_KEY_LOOKUP: StaticKeyLookup = StaticKeyLookup();
+/// const FRAME_CTR: u32 = 0x03030303;
+///
+/// fn aes_sec_ctx<'a>(frame_counter: u32) -> SecurityContext<Aes128, StaticKeyLookup> {
+///     SecurityContext {
+///         frame_counter,
+///         key_provider: STATIC_KEY_LOOKUP,
+///         phantom_data: PhantomData,
+///     }
+/// }
+///
+/// ```
 mod auxiliary_security_header;
 pub mod default;
 mod security_control;
