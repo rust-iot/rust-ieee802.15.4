@@ -3,8 +3,12 @@
 //!
 //! All of the below data structures are defined in section 7.4 of the 802.15.4-2011 standard
 
-use core::marker::PhantomData;
+mod auxiliary_security_header;
+pub(crate) mod default;
+mod security_control;
 
+use super::{FooterMode, Frame, Header};
+use crate::mac::{Address, FrameType, FrameVersion};
 use byte::BytesExt;
 use ccm::{
     aead::{
@@ -16,20 +20,11 @@ use ccm::{
     },
     Ccm,
 };
+use core::marker::PhantomData;
 
-use crate::mac::{Address, FrameType, FrameVersion};
-
-use super::{FooterMode, Frame, Header};
-
-mod auxiliary_security_header;
 pub use auxiliary_security_header::{AuxiliarySecurityHeader, KeyIdentifier, KeySource};
-
-pub(crate) mod default;
-
-mod security_control;
-pub use security_control::{KeyIdentifierMode, SecurityControl, SecurityLevel};
-
 pub use cipher::{generic_array::typenum::consts::U16, BlockCipher, NewBlockCipher};
+pub use security_control::{KeyIdentifierMode, SecurityControl, SecurityLevel};
 
 /// The addressing mode to use during descriptor lookups
 pub enum AddressingMode {

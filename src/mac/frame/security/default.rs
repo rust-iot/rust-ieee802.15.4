@@ -1,17 +1,18 @@
 //! Provides a default AEAD to satisfy the type requirements for (de-)serializing frames without
 //! any security
 
+use super::{
+    auxiliary_security_header::KeyIdentifier, AddressingMode, DeviceDescriptor,
+    DeviceDescriptorLookup, KeyDescriptorLookup,
+};
+use crate::mac::Address;
 use ccm::aead::generic_array::{
     typenum::consts::{U1, U16},
     GenericArray,
 };
-use cipher::{BlockCipher, NewBlockCipher};
-
-use crate::mac::Address;
-
-use super::{
-    auxiliary_security_header::KeyIdentifier, AddressingMode, DeviceDescriptorLookup,
-    KeyDescriptorLookup,
+use cipher::{
+    block::{Block, Key},
+    BlockCipher, NewBlockCipher,
 };
 
 /// A struct that fullfills all of the type checks, but is not actually capable of
@@ -34,15 +35,15 @@ impl BlockCipher for Unimplemented {
 
     type ParBlocks = U1;
 
-    fn encrypt_block(&self, _block: &mut cipher::block::Block<Self>) {}
+    fn encrypt_block(&self, _block: &mut Block<Self>) {}
 
-    fn decrypt_block(&self, _block: &mut cipher::block::Block<Self>) {}
+    fn decrypt_block(&self, _block: &mut Block<Self>) {}
 }
 
 impl NewBlockCipher for Unimplemented {
     type KeySize = U16;
 
-    fn new(_key: &cipher::block::Key<Self>) -> Self {
+    fn new(_key: &Key<Self>) -> Self {
         Unimplemented {}
     }
 }
@@ -50,9 +51,9 @@ impl NewBlockCipher for Unimplemented {
 impl DeviceDescriptorLookup for Unimplemented {
     fn lookup_device(
         &mut self,
-        _addressing_mode: super::AddressingMode,
-        _address: crate::mac::Address,
-    ) -> Option<&mut super::DeviceDescriptor> {
+        _addressing_mode: AddressingMode,
+        _address: Address,
+    ) -> Option<&mut DeviceDescriptor> {
         None
     }
 }

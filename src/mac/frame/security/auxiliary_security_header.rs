@@ -1,8 +1,7 @@
 //! All auxiliary security header structs and functions
 
-use byte::{BytesExt, TryRead, TryWrite, LE};
-
 use super::{KeyIdentifierMode, SecurityControl};
+use byte::{BytesExt, TryRead, TryWrite, LE};
 
 /// A struct describing the Auxiliary Security Header
 /// See: section 7.4 of the 802.15.4-2011 standard

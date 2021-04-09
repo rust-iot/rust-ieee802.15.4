@@ -1,8 +1,7 @@
 //! The security control header is described here
 
-use byte::{BytesExt, TryRead, TryWrite, LE};
-
 use crate::mac::DecodeError;
+use byte::{BytesExt, TryRead, TryWrite, LE};
 
 /// The Security Control header
 ///
