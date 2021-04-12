@@ -5,12 +5,16 @@
 //! [`Header`]: struct.Header.html
 
 use byte::{check_len, BytesExt, TryRead, TryWrite, LE};
+use cipher::{consts::U16, BlockCipher, NewBlockCipher};
 use hash32_derive::Hash32;
 
-use super::frame_control::{mask, offset};
 pub use super::frame_control::{AddressMode, FrameType, FrameVersion};
-use super::security::AuxiliarySecurityHeader;
 use super::DecodeError;
+use super::{
+    frame_control::{mask, offset},
+    security::{KeyDescriptorLookup, SecurityContext},
+};
+use super::{security::AuxiliarySecurityHeader, EncodeError};
 
 /// MAC frame header
 ///
@@ -196,13 +200,21 @@ impl TryRead<'_> for Header {
     }
 }
 
-impl TryWrite for Header {
-    fn try_write(self, bytes: &mut [u8], _ctx: ()) -> byte::Result<usize> {
+impl<AEADBLKCIPH, KEYDESCLO> TryWrite<&Option<&mut SecurityContext<AEADBLKCIPH, KEYDESCLO>>> for Header
+where
+    AEADBLKCIPH: NewBlockCipher + BlockCipher<BlockSize = U16>,
+    KEYDESCLO: KeyDescriptorLookup<AEADBLKCIPH::KeySize>,
+{
+    fn try_write(
+        self,
+        bytes: &mut [u8],
+        sec_ctx: &Option<&mut SecurityContext<AEADBLKCIPH, KEYDESCLO>>,
+    ) -> byte::Result<usize> {
         let offset = &mut 0;
         let dest_addr_mode = AddressMode::from(self.destination);
         let src_addr_mode = AddressMode::from(self.source);
 
-        let security = self.has_security();
+        let security = self.auxiliary_security_header.is_some();
 
         let frame_control_raw = (self.frame_type as u16) << offset::FRAME_TYPE
             | (security as u16) << offset::SECURITY
@@ -236,13 +248,19 @@ impl TryWrite for Header {
             (None, false) => (),
         }
 
-        match self.auxiliary_security_header {
-            Some(aux_sec_head) => {
-                bytes.write(offset, aux_sec_head)?;
+        if security && sec_ctx.is_none() {
+            return Err(EncodeError::MissingSecurityCtx)?;
+        } else if security {
+            match self.auxiliary_security_header {
+                Some(aux_sec_head) => match sec_ctx {
+                    Some(sec_ctx) => {
+                        bytes.write_with(offset, aux_sec_head, sec_ctx)?;
+                    }
+                    None => return Err(EncodeError::UnknownError)?,
+                },
+                None => return Err(EncodeError::UnknownError)?,
             }
-            None => {}
         }
-
         Ok(*offset)
     }
 }

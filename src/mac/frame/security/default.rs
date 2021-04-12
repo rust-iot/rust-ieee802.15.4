@@ -25,7 +25,7 @@ impl KeyDescriptorLookup<U16> for Unimplemented {
         _address_mode: AddressingMode,
         _key_identifier: Option<KeyIdentifier>,
         _device_address: Option<Address>,
-    ) -> Option<(Address, GenericArray<u8, U16>)> {
+    ) -> Option<(u64, GenericArray<u8, U16>)> {
         None
     }
 }

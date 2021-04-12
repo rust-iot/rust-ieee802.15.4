@@ -1,56 +1,153 @@
 //! Partial implementation of security for 802.4.15 frames.
 //!
 //! For specifications of the procedures and structures, see section 7.4 of the 802.15.4-2011 standard.
-///
-/// # Example on how to use frames with security
-/// Note that the example below is _very unsecure_, and should not be used in any production setting
-///
-/// ```rust
-/// struct StaticKeyLookup();
-///
-/// impl KeyDescriptorLookup<U16> for StaticKeyLookup {
-///     fn lookup_key_descriptor(
-///         &self,
-///         _address_mode: AddressingMode,
-///         _key_identifier: Option<KeyIdentifier>,
-///         device_address: Option<Address>,
-///     ) -> Option<(Address, GenericArray<u8, U16>)> {
-///         let key = GenericArray::default();
-///         Some((device_address.unwrap(), key))
-///     }
-/// }
-/// struct BasicDevDescriptorLookup<'a> {
-///     descriptor: &'a mut DeviceDescriptor,
-/// }
-///
-/// impl<'a> BasicDevDescriptorLookup<'a> {
-///     pub fn new(descriptor: &'a mut DeviceDescriptor) -> Self {
-///         Self { descriptor }
-///     }
-/// }
-///
-/// impl<'a> DeviceDescriptorLookup for BasicDevDescriptorLookup<'a> {
-///     fn lookup_device(
-///         &mut self,
-///         _addressing_mode: AddressingMode,
-///         _address: Address,
-///     ) -> Option<&mut DeviceDescriptor> {
-///         Some(self.descriptor)
-///     }
-/// }
-///
-/// const STATIC_KEY_LOOKUP: StaticKeyLookup = StaticKeyLookup();
-/// const FRAME_CTR: u32 = 0x03030303;
-///
-/// fn aes_sec_ctx<'a>(frame_counter: u32) -> SecurityContext<Aes128, StaticKeyLookup> {
-///     SecurityContext {
-///         frame_counter,
-///         key_provider: STATIC_KEY_LOOKUP,
-///         phantom_data: PhantomData,
-///     }
-/// }
-///
-/// ```
+//!
+//! # Example on how to use frames with security
+//! Note that the example below is _very insecure, and should not be used in any production setting
+//!
+//! ```rust
+//! use ieee802154::mac::{
+//!     frame::security::{
+//!         KeyDescriptorLookup,
+//!         DeviceDescriptorLookup,
+//!         DeviceDescriptor,
+//!         SecurityContext,
+//!         AddressingMode,
+//!         U16,
+//!         KeyIdentifier,
+//!         SecurityControl,
+//!         AuxiliarySecurityHeader,
+//!         SecurityLevel,
+//!         KeySource,
+//!     },
+//!     Address,
+//!     ExtendedAddress,
+//!     PanId,
+//!     Header,
+//!     Frame,
+//!     FrameVersion,
+//!     FrameContent,
+//!     FrameType,
+//!     FrameSerDesContext,
+//!     FooterMode,
+//! };
+//! use ccm::aead::generic_array::GenericArray;
+//! use aes_soft::Aes128;
+//! use byte::TryWrite;
+//!
+//! /// Static key descriptor lookup struct that always returns
+//! /// the same key, given that the input address is
+//! /// an extended address
+//! struct StaticKeyLookup;
+//!
+//! impl KeyDescriptorLookup<U16> for StaticKeyLookup {
+//!     fn lookup_key_descriptor(
+//!         &self,
+//!         _address_mode: AddressingMode,
+//!         _key_identifier: Option<KeyIdentifier>,
+//!         device_address: Option<Address>,
+//!     ) -> Option<(u64, GenericArray<u8, U16>)> {
+//!         let key = GenericArray::default();
+//!         if let Some(Address::Extended(pan_id, ExtendedAddress(u64_id))) = device_address {
+//!             Some((u64_id, key))
+//!         } else {
+//!             None
+//!         }
+//!     }
+//! }
+//!
+//! /// A device descriptor lookup that always returns the same
+//! /// device descriptor
+//! struct BasicDevDescriptorLookup<'a> {
+//!     descriptor: &'a mut DeviceDescriptor,
+//! }
+//!
+//! impl<'a> BasicDevDescriptorLookup<'a> {
+//!     pub fn new(descriptor: &'a mut DeviceDescriptor) -> Self {
+//!         Self { descriptor }
+//!     }
+//! }
+//!
+//! impl<'a> DeviceDescriptorLookup for BasicDevDescriptorLookup<'a> {
+//!     fn lookup_device(
+//!         &mut self,
+//!         _addressing_mode: AddressingMode,
+//!         _address: Address,
+//!     ) -> Option<&mut DeviceDescriptor> {
+//!         Some(self.descriptor)
+//!     }
+//! }
+//!
+//! const STATIC_KEY_LOOKUP: StaticKeyLookup = StaticKeyLookup {};
+//! const FRAME_CTR: u32 = 0x00000000;
+//!
+//! /// Get a new security context that uses the Aes128 block cipher for CCM operations,
+//! /// and the static key lookup for determining the key to use
+//! fn aes_sec_ctx<'a>(frame_counter: u32) -> SecurityContext<Aes128, StaticKeyLookup> {
+//!     SecurityContext::new(frame_counter, STATIC_KEY_LOOKUP)
+//! }
+//!
+//! fn main() {
+//!     let source = Some(Address::Extended(PanId(0x111), ExtendedAddress(0x01)));
+//!     let destination = Some(Address::Extended(PanId(0x111), ExtendedAddress(0x02)));
+//!
+//!     let device_desc = &mut DeviceDescriptor {
+//!         address: Address::Extended(PanId(511), ExtendedAddress(0x02)),
+//!         frame_counter: FRAME_CTR,
+//!         exempt: false,
+//!     };
+//!
+//!     let mut sec_ctx = aes_sec_ctx(FRAME_CTR);
+//!     let auxiliary_security_header = Some(AuxiliarySecurityHeader::new(
+//!         SecurityControl::new(SecurityLevel::ENCMIC128),
+//!         Some(KeyIdentifier {
+//!             key_source: Some(KeySource::Long(0xAA)),
+//!             key_index: 48,
+//!         }),
+//!     ));
+//!
+//!     let payload = &[0u8, 1u8, 2u8, 3u8, 4u8];
+//!     let frame = Frame {
+//!         header: Header {
+//!             frame_type: FrameType::Data,
+//!             frame_pending: false,
+//!             ack_request: false,
+//!             pan_id_compress: false,
+//!             version: FrameVersion::Ieee802154,
+//!             seq: 127,
+//!             destination,
+//!             source,
+//!             auxiliary_security_header,
+//!         },
+//!         content: FrameContent::Data,
+//!         payload,
+//!         footer: [0x00, 0x00],
+//!     };
+//!     let mut buffer = [0u8; 128];
+//!     // Write/"send" a MAC frame. Security is applied if an auxiliary security header
+//!     // is present (which it is, in this case)
+//!     let len = match frame.try_write(
+//!         &mut buffer,
+//!         &mut FrameSerDesContext::new(FooterMode::None, Some(&mut sec_ctx)),
+//!     ) {
+//!         Ok(size) => size,
+//!         Err(e) => 0,
+//!     };
+//!     
+//!     // Read/"receive" a MAC frame. Unsecuring it is attempted if the header
+//!     // has security enabled
+//!     let frame = match Frame::try_read_and_unsecure(
+//!         &mut buffer[..len],
+//!         &mut FrameSerDesContext::new(FooterMode::None, Some(&mut sec_ctx)),
+//!         &mut BasicDevDescriptorLookup::new(device_desc),
+//!     ) {
+//!         Ok((frame, _)) => frame,
+//!         Err(e) => panic!("Could not unsecure frame! {:?}", e),
+//!     };
+//!     assert_eq!(frame.payload, &[0u8, 1u8, 2u8, 3u8, 4u8])
+//! }
+//! ```
+//!
 mod auxiliary_security_header;
 pub mod default;
 mod security_control;
@@ -107,14 +204,14 @@ where
     /// and some if the lookup succeeds, where the Option contains the KeyDescriptor that was
     /// found according to the passed in parameters
     ///
-    /// The address that is returned _must_ be of the type [`Address::Extended`], as it is used
-    /// for generating the nonce
+    /// The return value should be the 64 bit UID associated with the given device address, if
+    /// any such UID exists. If it does not, the return value should be `None`.
     fn lookup_key_descriptor(
         &self,
         address_mode: AddressingMode,
         key_identifier: Option<KeyIdentifier>,
         device_address: Option<Address>,
-    ) -> Option<(Address, GenericArray<u8, N>)>;
+    ) -> Option<(u64, GenericArray<u8, N>)>;
 }
 
 /// Perform a lookup of a device descriptor based on the provided address
@@ -149,7 +246,23 @@ where
     /// of AEAD, as opposed to actually using a provided AEAD instance somewhere
     ///
     /// The NONCEGEN is phantom data as well
-    pub phantom_data: PhantomData<AEADBLKCIPH>,
+    phantom_data: PhantomData<AEADBLKCIPH>,
+}
+
+impl<AEADBLKCIPH, KEYDESCLO> SecurityContext<AEADBLKCIPH, KEYDESCLO>
+where
+    AEADBLKCIPH: NewBlockCipher + BlockCipher<BlockSize = U16>,
+    KEYDESCLO: KeyDescriptorLookup<AEADBLKCIPH::KeySize>,
+{
+    /// Create a new security context using the provided key provider and
+    /// frame counter
+    pub fn new(frame_counter: u32, key_provider: KEYDESCLO) -> Self {
+        Self {
+            frame_counter,
+            key_provider,
+            phantom_data: PhantomData,
+        }
+    }
 }
 
 fn calculate_nonce(source_addr: u64, frame_counter: u32, sec_level: SecurityLevel) -> [u8; 13] {
@@ -391,30 +504,29 @@ where
 
         let mut taglen = 0;
         // 7.2.3f
-        if let Some((key_address, key)) = context.key_provider.lookup_key_descriptor(
+        if let Some((source_u64_address, key)) = context.key_provider.lookup_key_descriptor(
             AddressingMode::SrcAddrMode,
             aux_sec_header.key_identifier,
             header.source,
         ) {
-            let (source, source_u64) = match key_address {
-                Address::Short(_, _) => {
-                    return Err(SecurityError::KeyLookupAddressTypeMismatch);
-                }
-                Address::Extended(_, ext_addr) => (key_address, ext_addr.0),
+            let source_addr = match header.source {
+                Some(address) => address,
+                None => return Err(SecurityError::NoSourceAddress),
             };
 
-            match dev_desc_lo.lookup_device(AddressingMode::SrcAddrMode, source) {
+            match dev_desc_lo.lookup_device(AddressingMode::SrcAddrMode, source_addr) {
                 Some(device) => {
                     let frame_counter = &mut device.frame_counter;
                     // 7.2.3l, 7.2.3m
-                    if *frame_counter == 0xFFFFFFFF || aux_sec_header.frame_counter < *frame_counter
+                    if *frame_counter == 0xFFFFFFFF
+                        || aux_sec_header.get_frame_counter() < *frame_counter
                     {
                         return Err(SecurityError::CounterError);
                     }
 
                     let nonce = calculate_nonce(
-                        source_u64,
-                        aux_sec_header.frame_counter,
+                        source_u64_address,
+                        aux_sec_header.get_frame_counter(),
                         aux_sec_header.control.security_level,
                     );
 
@@ -455,7 +567,7 @@ where
                                 }
                             };
                             if let Ok(_) = verify {
-                                *frame_counter = aux_sec_header.frame_counter + 1;
+                                *frame_counter = aux_sec_header.get_frame_counter() + 1;
                             } else {
                                 return Err(SecurityError::TransformationError);
                             }
@@ -619,9 +731,13 @@ mod tests {
             _address_mode: AddressingMode,
             _key_identifier: Option<KeyIdentifier>,
             device_address: Option<Address>,
-        ) -> Option<(Address, GenericArray<u8, U16>)> {
+        ) -> Option<(u64, GenericArray<u8, U16>)> {
             let key = GenericArray::default();
-            Some((device_address.unwrap(), key))
+            if let Some(Address::Extended(_, ExtendedAddress(u64_id))) = device_address {
+                Some((u64_id, key))
+            } else {
+                None
+            }
         }
     }
     struct BasicDevDescriptorLookup<'a> {
@@ -691,14 +807,17 @@ mod tests {
         ($level:expr) => {
             let (source, destination) = get_rand_addrpair();
 
-            let aux_sec_header = Some(AuxiliarySecurityHeader {
-                control: SecurityControl::new($level),
-                frame_counter: FRAME_CTR,
-                key_identifier: Some(KeyIdentifier {
-                    key_source: None,
-                    key_index: 0,
-                }),
-            });
+            let aux_sec_header;
+            unsafe {
+                aux_sec_header = Some(AuxiliarySecurityHeader::new_unsafe(
+                    SecurityControl::new($level),
+                    Some(KeyIdentifier {
+                        key_source: None,
+                        key_index: 0,
+                    }),
+                    FRAME_CTR,
+                ));
+            }
 
             let plaintext_payload = &mut [0xFF, 0x00, 0xFF, 0x00, 0xFF, 0x00];
             let plaintext_len = plaintext_payload.len();
@@ -728,7 +847,7 @@ mod tests {
 
             let device_desc = &mut DeviceDescriptor {
                 address: Address::Extended(PanId(511), ExtendedAddress(0xAAFFAAFFAAFFu64)),
-                frame_counter: FRAME_CTR,
+                frame_counter: FRAME_CTR - 1,
                 exempt: false,
             };
 
@@ -749,7 +868,7 @@ mod tests {
                             err
                         );
                     }
-                    _ => assert!(false, "Failed to unsecure frame {:?}! ", e),
+                    _ => assert!(false, "Failed to unsecure frame: {:?}! ", e),
                 },
                 _ => {}
             }
@@ -821,14 +940,13 @@ mod tests {
             Address::Extended(PanId(0x2222), ExtendedAddress(0x09)),
         );
 
-        let aux_sec_header = Some(AuxiliarySecurityHeader {
-            control: SecurityControl::new(SecurityLevel::ENCMIC32),
-            frame_counter: FRAME_CTR,
-            key_identifier: Some(KeyIdentifier {
+        let aux_sec_header = Some(AuxiliarySecurityHeader::new(
+            SecurityControl::new(SecurityLevel::ENCMIC32),
+            Some(KeyIdentifier {
                 key_source: Some(KeySource::Long(0xABABABABABABABAB)),
                 key_index: 48,
             }),
-        });
+        ));
 
         let plaintext_payload = &mut [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF];
         let plaintext_len = plaintext_payload.len();
@@ -910,7 +1028,7 @@ mod tests {
             }
             None => assert!(false, "Did not parse key identifier correctly"),
         }
-        assert_eq!(aux_sec.frame_counter, FRAME_CTR);
+        assert_eq!(aux_sec.get_frame_counter(), FRAME_CTR);
         assert_eq!(sec_ctx.frame_counter, FRAME_CTR + 1);
         assert_eq!(device_desc.frame_counter, sec_ctx.frame_counter);
     }
@@ -922,11 +1040,10 @@ mod tests {
             Address::Extended(PanId(0x2222), ExtendedAddress(0x09)),
         );
 
-        let aux_sec_header = Some(AuxiliarySecurityHeader {
-            control: SecurityControl::new(SecurityLevel::MIC128),
-            frame_counter: FRAME_CTR,
-            key_identifier: None,
-        });
+        let aux_sec_header = Some(AuxiliarySecurityHeader::new(
+            SecurityControl::new(SecurityLevel::MIC128),
+            None,
+        ));
 
         let plaintext_payload = &mut [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF];
         let plaintext_len = plaintext_payload.len();

@@ -227,11 +227,7 @@ where
         let mode = &context.footer_mode;
         let offset = &mut 0;
 
-        if self.header.has_security() && context.security_ctx.is_none() {
-            return Err(EncodeError::MissingSecurityCtx)?;
-        }
-
-        bytes.write(offset, self.header)?;
+        bytes.write_with(offset, self.header, &context.security_ctx)?;
         bytes.write(offset, self.content)?;
 
         let mut security_enabled = false;
@@ -500,6 +496,8 @@ pub enum EncodeError {
     WriteError,
     /// Security is enabled but no security context is specified
     MissingSecurityCtx,
+    /// Something went wrong, but it is unclear what/how it did
+    UnknownError,
 }
 
 impl From<EncodeError> for byte::Error {
@@ -508,6 +506,9 @@ impl From<EncodeError> for byte::Error {
             EncodeError::WriteError => byte::Error::BadInput { err: "WriteError" },
             EncodeError::MissingSecurityCtx => byte::Error::BadInput {
                 err: "MissingSecurityCtx",
+            },
+            EncodeError::UnknownError => byte::Error::BadInput {
+                err: "UnknownError",
             },
         }
     }

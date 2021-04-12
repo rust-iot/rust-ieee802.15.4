@@ -1,7 +1,8 @@
 //! All auxiliary security header structs and functions
 
-use super::{KeyIdentifierMode, SecurityControl};
+use super::{KeyDescriptorLookup, KeyIdentifierMode, SecurityContext, SecurityControl};
 use byte::{BytesExt, TryRead, TryWrite, LE};
+use cipher::{consts::U16, BlockCipher, NewBlockCipher};
 
 /// A struct describing the Auxiliary Security Header
 ///
@@ -10,8 +11,8 @@ use byte::{BytesExt, TryRead, TryWrite, LE};
 pub struct AuxiliarySecurityHeader {
     /// The control field in the Auxiliary Security Header
     pub control: SecurityControl,
-    /// The frame counter
-    pub frame_counter: u32,
+    /// The frame counter. This is automatically determined when running [`super::unsecure_frame`] and/or [`super::secure_frame`]
+    pub(crate) frame_counter: u32,
     /// If the key_identifier field in [`AuxiliarySecurityHeader::control`] is not set to None, this field contains the key identifier
     /// of this frame, otherwise it is None
     pub key_identifier: Option<KeyIdentifier>,
@@ -34,6 +35,38 @@ impl AuxiliarySecurityHeader {
                 None => 0,
             };
         length
+    }
+
+    /// Create a new Auxiliary Security Header with the specified control and key identifier
+    pub fn new(control: SecurityControl, key_identifier: Option<KeyIdentifier>) -> Self {
+        Self {
+            control,
+            key_identifier,
+            frame_counter: 0,
+        }
+    }
+
+    /// Create a new Auxiliary Security Header with the specified control, key identifier, and frame counter.
+    ///
+    /// This function is unsafe because the frame_counter is almost always set when parsing a frame from a buffer,
+    /// or by the security context at the time of actually writing a secured frame.
+    pub unsafe fn new_unsafe(
+        control: SecurityControl,
+        key_identifier: Option<KeyIdentifier>,
+        frame_counter: u32,
+    ) -> Self {
+        Self {
+            control,
+            key_identifier,
+            frame_counter,
+        }
+    }
+
+    /// Get the frame counter of this auxiliary security header.
+    ///
+    /// This will be 0 on a non-parsed Auxiliary Security Header
+    pub fn get_frame_counter(&self) -> u32 {
+        self.frame_counter
     }
 }
 
@@ -74,8 +107,17 @@ impl TryRead<'_> for AuxiliarySecurityHeader {
     }
 }
 
-impl TryWrite for AuxiliarySecurityHeader {
-    fn try_write(mut self, bytes: &mut [u8], _ctx: ()) -> byte::Result<usize> {
+impl<AEADBLKCIPH, KEYDESCLO> TryWrite<&SecurityContext<AEADBLKCIPH, KEYDESCLO>>
+    for AuxiliarySecurityHeader
+where
+    AEADBLKCIPH: NewBlockCipher + BlockCipher<BlockSize = U16>,
+    KEYDESCLO: KeyDescriptorLookup<AEADBLKCIPH::KeySize>,
+{
+    fn try_write(
+        mut self,
+        bytes: &mut [u8],
+        sec_ctx: &SecurityContext<AEADBLKCIPH, KEYDESCLO>,
+    ) -> byte::Result<usize> {
         let offset = &mut 0;
 
         // Set the key id mode to that corresponding to the configured
@@ -92,7 +134,7 @@ impl TryWrite for AuxiliarySecurityHeader {
         };
 
         bytes.write(offset, self.control)?;
-        bytes.write(offset, self.frame_counter)?;
+        bytes.write(offset, sec_ctx.frame_counter)?;
         match self.key_identifier {
             Some(key_identifier) => {
                 bytes.write(offset, key_identifier)?;
