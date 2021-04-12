@@ -93,7 +93,6 @@
 //!     let destination = Some(Address::Extended(PanId(0x111), ExtendedAddress(0x02)));
 //!
 //!     let device_desc = &mut DeviceDescriptor {
-//!         address: Address::Extended(PanId(511), ExtendedAddress(0x02)),
 //!         frame_counter: FRAME_CTR,
 //!         exempt: false,
 //!     };
@@ -192,9 +191,6 @@ pub enum AddressingMode {
 #[derive(Clone)]
 /// A partial device descriptor
 pub struct DeviceDescriptor {
-    /// The address of the sending device, used for calculating
-    /// the security nonce for outgoing frames
-    pub address: Address,
     /// The frame counter associated with this device
     pub frame_counter: u32,
     /// Whether this device is allowed to override the minimum security level
@@ -851,7 +847,6 @@ mod tests {
             let mut frame = get_frame(Some(source), Some(destination), &[], aux_sec_header);
 
             let device_desc = &mut DeviceDescriptor {
-                address: Address::Extended(PanId(511), ExtendedAddress(0xAAFFAAFFAAFFu64)),
                 frame_counter: FRAME_CTR - 1,
                 exempt: false,
             };
@@ -994,7 +989,6 @@ mod tests {
         );
 
         let device_desc = &mut DeviceDescriptor {
-            address: Address::Extended(PanId(511), ExtendedAddress(0xAAFFAAFFAAFFu64)),
             frame_counter: FRAME_CTR,
             exempt: false,
         };
@@ -1089,7 +1083,6 @@ mod tests {
         buf[33] ^= 0x01;
 
         let device_desc = &mut DeviceDescriptor {
-            address: Address::Extended(PanId(511), ExtendedAddress(0xAAFFAAFFAAFFu64)),
             frame_counter: FRAME_CTR,
             exempt: false,
         };
@@ -1117,7 +1110,6 @@ mod tests {
         // Test counter errors
         //
         let device_desc = &mut DeviceDescriptor {
-            address: Address::Extended(PanId(511), ExtendedAddress(0xAAFFAAFFAAFFu64)),
             frame_counter: FRAME_CTR + 5,
             exempt: false,
         };
@@ -1139,7 +1131,6 @@ mod tests {
         };
 
         let device_desc = &mut DeviceDescriptor {
-            address: Address::Extended(PanId(511), ExtendedAddress(0xAAFFAAFFAAFFu64)),
             frame_counter: 0xFFFFFFFF,
             exempt: false,
         };

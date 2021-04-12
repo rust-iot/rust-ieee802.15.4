@@ -200,7 +200,8 @@ impl TryRead<'_> for Header {
     }
 }
 
-impl<AEADBLKCIPH, KEYDESCLO> TryWrite<&Option<&mut SecurityContext<AEADBLKCIPH, KEYDESCLO>>> for Header
+impl<AEADBLKCIPH, KEYDESCLO> TryWrite<&Option<&mut SecurityContext<AEADBLKCIPH, KEYDESCLO>>>
+    for Header
 where
     AEADBLKCIPH: NewBlockCipher + BlockCipher<BlockSize = U16>,
     KEYDESCLO: KeyDescriptorLookup<AEADBLKCIPH::KeySize>,
