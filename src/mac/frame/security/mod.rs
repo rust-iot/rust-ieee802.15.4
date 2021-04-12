@@ -966,6 +966,17 @@ mod tests {
         let mut buf = [0u8; 127];
         let mut sec_ctx = aes_sec_ctx(source_euid, FRAME_CTR);
 
+        match frame.try_write(
+            &mut buf,
+            &mut FrameSerDesContext::no_security(FooterMode::None),
+        ) {
+            Ok(_) => assert!(
+                false,
+                "Successfully wrote frame with security enabled, but missing security context!"
+            ),
+            Err(_) => {}
+        }
+
         let len = match frame.try_write(
             &mut buf,
             &mut FrameSerDesContext::new(FooterMode::None, Some(&mut sec_ctx)),
