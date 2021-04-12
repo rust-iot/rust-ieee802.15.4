@@ -3,7 +3,7 @@
 //! For specifications of the procedures and structures, see section 7.4 of the 802.15.4-2011 standard.
 //!
 //! # Example on how to use frames with security
-//! Note that the example below is _very insecure, and should not be used in any production setting
+//! Note that the example below is _very insecure_, and should not be used in any production setting
 //!
 //! ```rust
 //! use ieee802154::mac::{
@@ -108,7 +108,7 @@
 //!     ));
 //!
 //!     let payload = &[0u8, 1u8, 2u8, 3u8, 4u8];
-//!     let frame = Frame {
+//!     let frame_to_secure = Frame {
 //!         header: Header {
 //!             frame_type: FrameType::Data,
 //!             frame_pending: false,
@@ -127,17 +127,26 @@
 //!     let mut buffer = [0u8; 128];
 //!     // Write/"send" a MAC frame. Security is applied if an auxiliary security header
 //!     // is present (which it is, in this case)
-//!     let len = match frame.try_write(
+//!     // Note that this does _not_ change the contents of the frame, the secured data
+//!     // is only written to the buffer
+//!     let len = match frame_to_secure.try_write(
 //!         &mut buffer,
 //!         &mut FrameSerDesContext::new(FooterMode::None, Some(&mut sec_ctx)),
 //!     ) {
 //!         Ok(size) => size,
 //!         Err(e) => 0,
 //!     };
-//!     
+//!
+//!     // Verify that encryption succeeded and tag was appended correctly
+//!     assert_eq!(&buffer[..len], &[
+//!         0x9, 0xec, 0x7f, 0x11, 0x1, 0x2, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x11, 0x1, 0x1, 0x0, 0x0,
+//!         0x0, 0x0, 0x0, 0x0, 0x0, 0x1f, 0x0, 0x0, 0x0, 0x0, 0xaa, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+//!         0x30, 0xf8, 0x58, 0x90, 0xd2, 0x7f, 0x46, 0xcf, 0x1a, 0x73, 0xd3, 0xad, 0x65, 0xda, 0x6c, 0xd1,
+//!         0x4b, 0x73, 0xef, 0xbe, 0x79, 0x31,
+//!     ]);
 //!     // Read/"receive" a MAC frame. Unsecuring it is attempted if the header
 //!     // has security enabled
-//!     let frame = match Frame::try_read_and_unsecure(
+//!     let unsecured_frame = match Frame::try_read_and_unsecure(
 //!         &mut buffer[..len],
 //!         &mut FrameSerDesContext::new(FooterMode::None, Some(&mut sec_ctx)),
 //!         &mut BasicDevDescriptorLookup::new(device_desc),
@@ -145,7 +154,7 @@
 //!         Ok((frame, _)) => frame,
 //!         Err(e) => panic!("Could not unsecure frame! {:?}", e),
 //!     };
-//!     assert_eq!(frame.payload, &[0u8, 1u8, 2u8, 3u8, 4u8])
+//!     assert_eq!(unsecured_frame.payload, &[0u8, 1u8, 2u8, 3u8, 4u8])
 //! }
 //! ```
 //!
