@@ -341,7 +341,9 @@ where
 
             // If frame size plus AuthLen plus AuxLen plus FCS is bigger than aMaxPHYPacketSize
             // 7.2.1b4
-            if !(frame.header.get_octet_size() + aux_len + auth_len + 2 <= 127) {
+            if !(frame.payload.len() + frame.header.get_octet_size() + aux_len + auth_len + 2
+                <= 127)
+            {
                 return Err(SecurityError::FrameTooLong);
             }
 

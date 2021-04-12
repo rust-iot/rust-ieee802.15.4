@@ -77,9 +77,9 @@ pub struct Header {
 
 impl Header {
     /// Get the size of this header in octets
-    pub fn get_octet_size(&self) -> u8 {
+    pub fn get_octet_size(&self) -> usize {
         // Frame control + sequence number
-        let mut len = 3u8;
+        let mut len = 3;
 
         for i in [self.destination, self.source].iter() {
             match i {

@@ -112,7 +112,7 @@ impl SecurityLevel {
 
     /// Get the size of the mic that will be generated if this specific security
     /// level is used
-    pub fn get_mic_octet_size(&self) -> u8 {
+    pub fn get_mic_octet_size(&self) -> usize {
         match self {
             SecurityLevel::None | SecurityLevel::ENC => 0,
             SecurityLevel::MIC32 | SecurityLevel::ENCMIC32 => 4,

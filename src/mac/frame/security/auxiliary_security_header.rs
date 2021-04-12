@@ -20,7 +20,7 @@ pub struct AuxiliarySecurityHeader {
 
 impl AuxiliarySecurityHeader {
     /// Get the size of this security header, in octets
-    pub fn get_octet_size(&self) -> u8 {
+    pub fn get_octet_size(&self) -> usize {
         // SecurityControl length + FrameCounter length
         let length = 1
             + 4
