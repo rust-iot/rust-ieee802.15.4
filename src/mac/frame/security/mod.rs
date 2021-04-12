@@ -83,12 +83,13 @@
 //!
 //! /// Get a new security context that uses the Aes128 block cipher for CCM operations,
 //! /// and the static key lookup for determining the key to use
-//! fn aes_sec_ctx<'a>(frame_counter: u32) -> SecurityContext<Aes128, StaticKeyLookup> {
-//!     SecurityContext::new(frame_counter, STATIC_KEY_LOOKUP)
+//! fn aes_sec_ctx<'a>(source_euid: u64, frame_counter: u32) -> SecurityContext<Aes128, StaticKeyLookup> {
+//!     SecurityContext::new(source_euid, frame_counter, STATIC_KEY_LOOKUP)
 //! }
 //!
 //! fn main() {
-//!     let source = Some(Address::Extended(PanId(0x111), ExtendedAddress(0x01)));
+//!     let source_euid = 0x01;
+//!     let source = Some(Address::Extended(PanId(0x111), ExtendedAddress(source_euid)));
 //!     let destination = Some(Address::Extended(PanId(0x111), ExtendedAddress(0x02)));
 //!
 //!     let device_desc = &mut DeviceDescriptor {
@@ -97,7 +98,7 @@
 //!         exempt: false,
 //!     };
 //!
-//!     let mut sec_ctx = aes_sec_ctx(FRAME_CTR);
+//!     let mut sec_ctx = aes_sec_ctx(source_euid, FRAME_CTR);
 //!     let auxiliary_security_header = Some(AuxiliarySecurityHeader::new(
 //!         SecurityControl::new(SecurityLevel::ENCMIC128),
 //!         Some(KeyIdentifier {
@@ -182,7 +183,8 @@ pub enum AddressingMode {
 #[derive(Clone)]
 /// A partial device descriptor
 pub struct DeviceDescriptor {
-    /// The address of this device
+    /// The address of the sending device, used for calculating
+    /// the security nonce for outgoing frames
     pub address: Address,
     /// The frame counter associated with this device
     pub frame_counter: u32,
@@ -238,6 +240,8 @@ where
     AEADBLKCIPH: NewBlockCipher + BlockCipher<BlockSize = U16>,
     KEYDESCLO: KeyDescriptorLookup<AEADBLKCIPH::KeySize>,
 {
+    /// The EUID used for calculating the nonce of outgoing frames
+    pub euid: u64,
     /// The current frame counter
     pub frame_counter: u32,
     /// The key descriptor lookup to use to look up keys
@@ -256,8 +260,9 @@ where
 {
     /// Create a new security context using the provided key provider and
     /// frame counter
-    pub fn new(frame_counter: u32, key_provider: KEYDESCLO) -> Self {
+    pub fn new(euid: u64, frame_counter: u32, key_provider: KEYDESCLO) -> Self {
         Self {
+            euid,
             frame_counter,
             key_provider,
             phantom_data: PhantomData,
@@ -316,15 +321,7 @@ where
 
     if header.has_security() {
         let frame_counter = &mut context.frame_counter;
-        let source = match header.source {
-            Some(addr) => match addr {
-                Address::Short(_, _) => {
-                    return Err(SecurityError::NotImplemented);
-                }
-                Address::Extended(_, ext_addr) => ext_addr.0,
-            },
-            _ => return Err(SecurityError::NoSourceAddress),
-        };
+        let source = context.euid;
 
         // Check for unimplemented behaviour before performing any operations on the buffer
         match header.frame_type {
@@ -763,12 +760,11 @@ mod tests {
     const STATIC_KEY_LOOKUP: StaticKeyLookup = StaticKeyLookup();
     const FRAME_CTR: u32 = 0x03030303;
 
-    fn aes_sec_ctx<'a>(frame_counter: u32) -> SecurityContext<Aes128, StaticKeyLookup> {
-        SecurityContext {
-            frame_counter,
-            key_provider: STATIC_KEY_LOOKUP,
-            phantom_data: PhantomData,
-        }
+    fn aes_sec_ctx<'a>(
+        source_euid: u64,
+        frame_counter: u32,
+    ) -> SecurityContext<Aes128, StaticKeyLookup> {
+        SecurityContext::new(source_euid, frame_counter, STATIC_KEY_LOOKUP)
     }
 
     fn get_frame<'a>(
@@ -795,17 +791,17 @@ mod tests {
         }
     }
 
-    fn get_rand_addrpair() -> (Address, Address) {
+    fn get_rand_addrpair() -> (u64, Address, Address) {
         let src_u64: u64 = rand::thread_rng().gen();
         let dest_u64: u64 = rand::thread_rng().gen();
         let source = Address::Extended(PanId(0x111), ExtendedAddress(src_u64));
         let destination = Address::Extended(PanId(0x2222), ExtendedAddress(dest_u64));
-        (source, destination)
+        (src_u64, source, destination)
     }
 
     macro_rules! test_security_level {
         ($level:expr) => {
-            let (source, destination) = get_rand_addrpair();
+            let (source_u64, source, destination) = get_rand_addrpair();
 
             let aux_sec_header;
             unsafe {
@@ -833,7 +829,7 @@ mod tests {
 
             let buf = &mut storage[..plaintext_len + $level.get_mic_octet_size() as usize];
 
-            let mut sec_ctx = aes_sec_ctx(FRAME_CTR);
+            let mut sec_ctx = aes_sec_ctx(source_u64, FRAME_CTR);
             let write_res = security::secure_frame(frame, &mut sec_ctx, FooterMode::None, buf);
 
             match write_res {
@@ -878,7 +874,7 @@ mod tests {
 
     #[test]
     fn encode_unsecured() {
-        let (source, destination) = get_rand_addrpair();
+        let (source_euid, source, destination) = get_rand_addrpair();
         let frame = get_frame(
             Some(source),
             Some(destination),
@@ -887,7 +883,7 @@ mod tests {
         );
 
         let mut buf = [0u8; 127];
-        let mut sec_ctx = aes_sec_ctx(FRAME_CTR);
+        let mut sec_ctx = aes_sec_ctx(source_euid, FRAME_CTR);
         let write_res = security::secure_frame(frame, &mut sec_ctx, FooterMode::None, &mut buf);
         match write_res {
             Ok(_) => {}
@@ -935,8 +931,9 @@ mod tests {
 
     #[test]
     fn encode_decode_secured_frame() {
+        let source_euid = 0x08;
         let (source, destination) = (
-            Address::Extended(PanId(0x111), ExtendedAddress(0x08)),
+            Address::Extended(PanId(0x111), ExtendedAddress(source_euid)),
             Address::Extended(PanId(0x2222), ExtendedAddress(0x09)),
         );
 
@@ -961,7 +958,7 @@ mod tests {
         );
 
         let mut buf = [0u8; 127];
-        let mut sec_ctx = aes_sec_ctx(FRAME_CTR);
+        let mut sec_ctx = aes_sec_ctx(source_euid, FRAME_CTR);
 
         let len = match frame.try_write(
             &mut buf,
@@ -1035,8 +1032,9 @@ mod tests {
 
     #[test]
     fn encode_fail_decode_secured_frame() {
+        let source_euid = 0x08;
         let (source, destination) = (
-            Address::Extended(PanId(0x111), ExtendedAddress(0x08)),
+            Address::Extended(PanId(0x111), ExtendedAddress(source_euid)),
             Address::Extended(PanId(0x2222), ExtendedAddress(0x09)),
         );
 
@@ -1056,7 +1054,7 @@ mod tests {
         );
 
         let mut buf = [0u8; 127];
-        let mut sec_ctx = aes_sec_ctx(FRAME_CTR);
+        let mut sec_ctx = aes_sec_ctx(source_euid, FRAME_CTR);
 
         let len = match frame.try_write(
             &mut buf,
