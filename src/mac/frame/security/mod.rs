@@ -161,6 +161,8 @@ mod auxiliary_security_header;
 pub mod default;
 mod security_control;
 
+use self::default::Unimplemented;
+
 use super::{FooterMode, Frame, Header};
 use crate::mac::{Address, FrameType, FrameVersion};
 use byte::BytesExt;
@@ -270,6 +272,18 @@ where
             euid,
             frame_counter,
             key_provider,
+            phantom_data: PhantomData,
+        }
+    }
+}
+
+impl SecurityContext<Unimplemented, Unimplemented> {
+    /// A security context that is not actually capable of providing any security
+    pub fn no_security() -> Self {
+        Self {
+            euid: 0,
+            frame_counter: 0,
+            key_provider: Unimplemented {},
             phantom_data: PhantomData,
         }
     }
