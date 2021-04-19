@@ -5,11 +5,16 @@
 //! [`Header`]: struct.Header.html
 
 use byte::{check_len, BytesExt, TryRead, TryWrite, LE};
+use cipher::{consts::U16, BlockCipher, NewBlockCipher};
 use hash32_derive::Hash32;
 
-use super::frame_control::*;
-pub use super::frame_control::{AddressMode, FrameType, FrameVersion, Security};
+pub use super::frame_control::{AddressMode, FrameType, FrameVersion};
 use super::DecodeError;
+use super::{
+    frame_control::{mask, offset},
+    security::{KeyDescriptorLookup, SecurityContext},
+};
+use super::{security::AuxiliarySecurityHeader, EncodeError};
 
 /// MAC frame header
 ///
@@ -21,9 +26,6 @@ pub struct Header {
     // * Frame Control Field * /
     /// Frame Type
     pub frame_type: FrameType,
-
-    /// Auxiliary Security header
-    pub security: Security,
 
     /// Frame Pending
     ///
@@ -67,6 +69,39 @@ pub struct Header {
 
     /// Source Address
     pub source: Option<Address>,
+
+    /// Auxiliary security header. If security is enabled in this header,
+    /// this field will be Some, else it will be None
+    pub auxiliary_security_header: Option<AuxiliarySecurityHeader>,
+}
+
+impl Header {
+    /// Get the size of this header in octets
+    pub fn get_octet_size(&self) -> usize {
+        // Frame control + sequence number
+        let mut len = 3;
+
+        for i in [self.destination, self.source].iter() {
+            match i {
+                Some(addr) => {
+                    // pan ID
+                    len += 2;
+                    // Address length
+                    match addr {
+                        Address::Short(..) => len += 2,
+                        Address::Extended(..) => len += 8,
+                    }
+                }
+                _ => {}
+            }
+        }
+        len
+    }
+
+    /// Whether this header has security enabled
+    pub fn has_security(&self) -> bool {
+        self.auxiliary_security_header.is_some()
+    }
 }
 
 impl TryRead<'_> for Header {
@@ -97,11 +132,7 @@ impl TryRead<'_> for Header {
         let src_addr_mode = AddressMode::from_bits(src_addr_mode)?;
 
         // make bool values
-        let security = if security > 0 {
-            return Err(DecodeError::SecurityNotSupported.into());
-        } else {
-            Security::None
-        };
+        let security = security > 0;
         let frame_pending = frame_pending > 0;
         let ack_request = ack_request > 0;
         let pan_id_compress = pan_id_compress > 0;
@@ -148,31 +179,46 @@ impl TryRead<'_> for Header {
             }
         };
 
+        let auxiliary_security_header = match security {
+            true => Some(bytes.read(offset)?),
+            false => None,
+        };
+
         let header = Header {
             frame_type,
-            security,
             frame_pending,
             ack_request,
             pan_id_compress,
             version,
-
             seq,
             destination,
             source,
+            auxiliary_security_header,
         };
 
         Ok((header, *offset))
     }
 }
 
-impl TryWrite for Header {
-    fn try_write(self, bytes: &mut [u8], _ctx: ()) -> byte::Result<usize> {
+impl<AEADBLKCIPH, KEYDESCLO> TryWrite<&Option<&mut SecurityContext<AEADBLKCIPH, KEYDESCLO>>>
+    for Header
+where
+    AEADBLKCIPH: NewBlockCipher + BlockCipher<BlockSize = U16>,
+    KEYDESCLO: KeyDescriptorLookup<AEADBLKCIPH::KeySize>,
+{
+    fn try_write(
+        self,
+        bytes: &mut [u8],
+        sec_ctx: &Option<&mut SecurityContext<AEADBLKCIPH, KEYDESCLO>>,
+    ) -> byte::Result<usize> {
         let offset = &mut 0;
         let dest_addr_mode = AddressMode::from(self.destination);
         let src_addr_mode = AddressMode::from(self.source);
 
+        let security = self.auxiliary_security_header.is_some();
+
         let frame_control_raw = (self.frame_type as u16) << offset::FRAME_TYPE
-            | (self.security as u16) << offset::SECURITY
+            | (security as u16) << offset::SECURITY
             | (self.frame_pending as u16) << offset::PENDING
             | (self.ack_request as u16) << offset::ACK
             | (self.pan_id_compress as u16) << offset::PAN_ID_COMPRESS
@@ -201,6 +247,20 @@ impl TryWrite for Header {
                 panic!("frame control request compress source address without contain this address")
             }
             (None, false) => (),
+        }
+
+        if security && sec_ctx.is_none() {
+            return Err(EncodeError::MissingSecurityCtx)?;
+        } else if security {
+            match self.auxiliary_security_header {
+                Some(aux_sec_head) => match sec_ctx {
+                    Some(sec_ctx) => {
+                        bytes.write_with(offset, aux_sec_head, sec_ctx)?;
+                    }
+                    None => return Err(EncodeError::UnknownError)?,
+                },
+                None => return Err(EncodeError::UnknownError)?,
+            }
         }
         Ok(*offset)
     }

@@ -144,18 +144,6 @@ impl AddressMode {
     }
 }
 
-/// Defines whether an auxiliary security header is present in the MAC header
-///
-/// Part of [`Header`]. Auxiliary security headers are currently unsupported by
-/// this implementation.
-///
-/// [`Header`]: super::header::Header
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum Security {
-    /// No auxiliary security header is present
-    None = 0b0,
-}
-
 pub mod offset {
     pub const FRAME_TYPE: u16 = 0;
     pub const SECURITY: u16 = 3;

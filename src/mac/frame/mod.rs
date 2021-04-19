@@ -16,9 +16,17 @@ use crate::mac::command::Command;
 
 mod frame_control;
 pub mod header;
+pub mod security;
 use byte::{ctx::Bytes, BytesExt, TryRead, TryWrite, LE};
+use ccm::aead::generic_array::typenum::consts::U16;
+use cipher::{BlockCipher, NewBlockCipher};
 use header::FrameType;
 pub use header::Header;
+
+use self::security::{
+    default::Unimplemented, DeviceDescriptorLookup, KeyDescriptorLookup, SecurityContext,
+    SecurityError,
+};
 
 /// An IEEE 802.15.4 MAC frame
 ///
@@ -37,12 +45,12 @@ pub use header::Header;
 /// ``` rust
 /// use ieee802154::mac::{
 ///     Frame,
-///       Address,
-///       ShortAddress,
-///       FrameType,
-///       FooterMode,
-///       PanId,
-///       Security
+///     Address,
+///     ShortAddress,
+///     FrameType,
+///     FooterMode,
+///     PanId,
+///     FrameSerDesContext,
 /// };
 /// use byte::BytesExt;
 ///
@@ -50,7 +58,7 @@ pub use header::Header;
 /// // Construct a simple MAC frame. The CRC checksum (the last 2 bytes) is
 /// // invalid, for the sake of convenience.
 /// let bytes = [
-///     0x01u8, 0x98,             // frame control
+///     0x01u8, 0x98,           // frame control
 ///     0x00,                   // sequence number
 ///     0x12, 0x34, 0x56, 0x78, // PAN identifier and address of destination
 ///     0x12, 0x34, 0x9a, 0xbc, // PAN identifier and address of source
@@ -63,7 +71,7 @@ pub use header::Header;
 ///
 /// assert_eq!(frame.header.seq,       0x00);
 /// assert_eq!(header.frame_type,      FrameType::Data);
-/// assert_eq!(header.security,        Security::None);
+/// assert_eq!(header.has_security(),  false);
 /// assert_eq!(header.frame_pending,   false);
 /// assert_eq!(header.ack_request,     false);
 /// assert_eq!(header.pan_id_compress, false);
@@ -100,14 +108,13 @@ pub use header::Header;
 ///   FrameVersion,
 ///   Header,
 ///   PanId,
-///   Security,
+///   FrameSerDesContext,
 /// };
 /// use byte::BytesExt;
 ///
 /// let frame = Frame {
 ///     header: Header {
 ///         frame_type:      FrameType::Data,
-///         security:        Security::None,
 ///         frame_pending:   false,
 ///         ack_request:     false,
 ///         pan_id_compress: false,
@@ -116,6 +123,7 @@ pub use header::Header;
 ///         seq:             0x00,
 ///         destination: Some(Address::Short(PanId(0x1234), ShortAddress(0x5678))),
 ///         source:      Some(Address::Short(PanId(0x1234), ShortAddress(0x9abc))),
+///         auxiliary_security_header: None,
 ///     },
 ///     content: FrameContent::Data,
 ///     payload: &[0xde, 0xf0],
@@ -126,7 +134,7 @@ pub use header::Header;
 /// let mut bytes = [0u8; 32];
 /// let mut len = 0usize;
 ///
-/// bytes.write_with(&mut len, frame, FooterMode::Explicit).unwrap();
+/// bytes.write_with(&mut len, frame, &mut FrameSerDesContext::no_security(FooterMode::Explicit)).unwrap();
 ///
 /// let expected_bytes = [
 ///     0x01, 0x98,             // frame control
@@ -141,7 +149,7 @@ pub use header::Header;
 ///
 /// [decode]: #method.try_read
 /// [encode]: #method.try_write
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
 pub struct Frame<'p> {
     /// Header
     pub header: Header,
@@ -157,31 +165,175 @@ pub struct Frame<'p> {
     /// This is a 2-byte CRC checksum.
     ///
     /// When creating an instance of this struct for encoding, you don't
-    /// necessarily need to write an actual CRC checksum here. [`Frame::encode`]
+    /// necessarily need to write an actual CRC checksum here. [`Frame::try_write`]
     /// can omit writing this checksum, for example if the transceiver hardware
     /// automatically adds the checksum for you.
     pub footer: [u8; 2],
 }
 
-impl TryWrite<FooterMode> for Frame<'_> {
-    fn try_write(self, bytes: &mut [u8], mode: FooterMode) -> byte::Result<usize> {
+/// A context that is used for serializing and deserializing frames, which also
+/// stores the frame counter
+pub struct FrameSerDesContext<'a, AEADBLKCIPH, KEYDESCLO>
+where
+    AEADBLKCIPH: NewBlockCipher + BlockCipher<BlockSize = U16>,
+    KEYDESCLO: KeyDescriptorLookup<AEADBLKCIPH::KeySize>,
+{
+    /// The footer mode to use when handling frames
+    footer_mode: FooterMode,
+    /// The security context for handling frames (if any)
+    security_ctx: Option<&'a mut SecurityContext<AEADBLKCIPH, KEYDESCLO>>,
+}
+
+impl<'a, AEADBLKCIPH, KEYDESCLO> FrameSerDesContext<'a, AEADBLKCIPH, KEYDESCLO>
+where
+    AEADBLKCIPH: NewBlockCipher + BlockCipher<BlockSize = U16>,
+    KEYDESCLO: KeyDescriptorLookup<AEADBLKCIPH::KeySize>,
+{
+    /// Create a new frame serialization/deserialization context with the specified footer mode
+    /// and security context
+    pub fn new(
+        mode: FooterMode,
+        security_ctx: Option<&'a mut SecurityContext<AEADBLKCIPH, KEYDESCLO>>,
+    ) -> Self {
+        FrameSerDesContext {
+            footer_mode: mode,
+            security_ctx,
+        }
+    }
+}
+
+impl FrameSerDesContext<'_, Unimplemented, Unimplemented> {
+    /// Create a new frame serialization/deserialization context with the specified footer mode,
+    /// that does not facilitate any security functionality
+    pub fn no_security(mode: FooterMode) -> Self {
+        FrameSerDesContext {
+            footer_mode: mode,
+            security_ctx: None,
+        }
+    }
+}
+
+impl<AEADBLKCIPH, KEYDESCLO> TryWrite<&mut FrameSerDesContext<'_, AEADBLKCIPH, KEYDESCLO>>
+    for Frame<'_>
+where
+    AEADBLKCIPH: NewBlockCipher + BlockCipher<BlockSize = U16>,
+    KEYDESCLO: KeyDescriptorLookup<AEADBLKCIPH::KeySize>,
+{
+    fn try_write(
+        self,
+        bytes: &mut [u8],
+        context: &mut FrameSerDesContext<AEADBLKCIPH, KEYDESCLO>,
+    ) -> byte::Result<usize> {
+        let mode = &context.footer_mode;
         let offset = &mut 0;
-        bytes.write(offset, self.header)?;
+
+        bytes.write_with(offset, self.header, &context.security_ctx)?;
         bytes.write(offset, self.content)?;
-        bytes.write(offset, self.payload)?;
+
+        let mut security_enabled = false;
+
+        if let Some(ctx) = context.security_ctx.as_mut() {
+            let write_secured =
+                security::secure_frame(self, ctx, context.footer_mode, &mut bytes[*offset..]);
+            match write_secured {
+                Ok(len) => {
+                    security_enabled = true;
+                    *offset += len
+                }
+                Err(e) => match e {
+                    SecurityError::SecurityNotEnabled => {}
+                    _ => return Err(e)?,
+                },
+            }
+        }
+
+        if !security_enabled {
+            bytes.write(offset, self.payload.as_ref())?;
+        }
+
         match mode {
             FooterMode::None => {}
+            // TODO: recalculate the footer after encryption?
             FooterMode::Explicit => bytes.write(offset, &self.footer[..])?,
         }
+
         Ok(*offset)
     }
 }
 
+impl<'a> Frame<'a> {
+    /// Try to read a frame. If the frame is secured, it will be unsecured
+    ///
+    /// Currently, this function does not support the explicit footer mode,
+    /// as the FCS has to be calculated over the payload before it is unsecured,
+    /// which isn't implemented yet
+    ///
+    /// Use [`FrameSerDesContext::no_security`] and/or [`Unimplemented`] if you
+    /// do not want to use any security, or simply [`Frame::try_read`]
+    pub fn try_read_and_unsecure<AEADBLKCIPH, KEYDESCLO, DEVDESCLO>(
+        buf: &'a mut [u8],
+        ctx: &mut FrameSerDesContext<'_, AEADBLKCIPH, KEYDESCLO>,
+        dev_desc_lo: &mut DEVDESCLO,
+    ) -> Result<(Frame<'a>, usize), SecurityError>
+    where
+        AEADBLKCIPH: NewBlockCipher + BlockCipher<BlockSize = U16>,
+        KEYDESCLO: KeyDescriptorLookup<AEADBLKCIPH::KeySize>,
+        DEVDESCLO: DeviceDescriptorLookup,
+    {
+        let offset = &mut 0;
+        let header: Header = buf.read(offset)?;
+        let content = buf.read_with(offset, &header)?;
+
+        let mut tag_size = 0;
+
+        if header.has_security() {
+            if let Some(sec_ctx) = ctx.security_ctx.as_mut() {
+                tag_size = match security::unsecure_frame(
+                    &header,
+                    &mut buf[*offset..],
+                    sec_ctx,
+                    ctx.footer_mode,
+                    dev_desc_lo,
+                ) {
+                    Ok(size) => size,
+                    Err(e) => match e {
+                        SecurityError::SecurityNotEnabled => 0,
+                        _ => return Err(e),
+                    },
+                };
+            } else {
+                return Err(SecurityError::InvalidSecContext);
+            }
+        }
+        let payload = buf.read_with(offset, Bytes::Len(buf.len() - *offset - tag_size))?;
+
+        let frame = Frame {
+            header,
+            content,
+            payload,
+            footer: [0, 0],
+        };
+
+        Ok((frame, *offset))
+    }
+}
+
 impl<'a> TryRead<'a, FooterMode> for Frame<'a> {
+    /// Try to read a frame
+    ///
+    /// Frames that have security enabled can not be processed by this function, and an
+    /// error will be returned if the frame contained in `bytes` does have it enabled.
+    ///
+    /// If you expect to receive secured frames, use [`Frame::try_read_and_unsecure`] instead,
     fn try_read(bytes: &'a [u8], mode: FooterMode) -> byte::Result<(Self, usize)> {
         let offset = &mut 0;
-        let header = bytes.read(offset)?;
+        let header: Header = bytes.read(offset)?;
         let content = bytes.read_with(offset, &header)?;
+
+        if header.has_security() {
+            return Err(DecodeError::SecurityEnabled)?;
+        }
+
         let (payload, footer) = match mode {
             FooterMode::None => (
                 bytes.read_with(offset, Bytes::Len(bytes.len() - *offset))?,
@@ -192,15 +344,14 @@ impl<'a> TryRead<'a, FooterMode> for Frame<'a> {
                 bytes.read_with(offset, LE)?,
             ),
         };
-        Ok((
-            Frame {
-                header: header,
-                content: content,
-                payload,
-                footer: footer.to_le_bytes(),
-            },
-            *offset,
-        ))
+
+        let frame = Frame {
+            header,
+            content,
+            payload,
+            footer: footer.to_le_bytes(),
+        };
+        Ok((frame, *offset))
     }
 }
 
@@ -215,6 +366,7 @@ impl<'a> TryRead<'a, FooterMode> for Frame<'a> {
 /// For now, only 1 and 3 are supported.
 ///
 /// [`Frame::try_write`](Frame::try_write)
+#[derive(Clone, Copy)]
 pub enum FooterMode {
     /// Don't read/write the footer
     None,
@@ -277,14 +429,26 @@ pub enum DecodeError {
     /// The frame type is invalid
     InvalidFrameType(u8),
 
-    /// The frame has the security bit set, which is not supported
-    SecurityNotSupported,
+    /// Security is enabled on the frame, and `try_read` is called. [`Frame::try_read_and_unsecure`] should be called instead.
+    SecurityEnabled,
 
     /// The frame's address mode is invalid
     InvalidAddressMode(u8),
 
     /// The frame's version is invalid or not supported
     InvalidFrameVersion(u8),
+
+    /// The auxiliary security header's security level is invalid
+    InvalidSecurityLevel(u8),
+
+    /// The auxiliary security header's key identifier mode is invalid
+    InvalidKeyIdentifierMode(u8),
+
+    /// Security is enabled, but no Securty Context is provided
+    MissingSecurityCtx,
+
+    /// Security is enabled, but no Auxiliary Security Header is present
+    AuxSecHeaderAbsent,
 
     /// The data stream contains an invalid value
     InvalidValue,
@@ -297,9 +461,6 @@ impl From<DecodeError> for byte::Error {
             DecodeError::InvalidFrameType(_) => byte::Error::BadInput {
                 err: "InvalidFrameType",
             },
-            DecodeError::SecurityNotSupported => byte::Error::BadInput {
-                err: "SecurityNotSupported",
-            },
             DecodeError::InvalidAddressMode(_) => byte::Error::BadInput {
                 err: "InvalidAddressMode",
             },
@@ -309,26 +470,67 @@ impl From<DecodeError> for byte::Error {
             DecodeError::InvalidValue => byte::Error::BadInput {
                 err: "InvalidValue",
             },
+            DecodeError::InvalidSecurityLevel(_) => byte::Error::BadInput {
+                err: "InvalidSecurityLevel",
+            },
+            DecodeError::InvalidKeyIdentifierMode(_) => byte::Error::BadInput {
+                err: "InvalidKeyIdentifierMode",
+            },
+            DecodeError::MissingSecurityCtx => byte::Error::BadInput {
+                err: "MissingSecurityCtx",
+            },
+            DecodeError::AuxSecHeaderAbsent => byte::Error::BadInput {
+                err: "AuxSecHeaderAbsent",
+            },
+            DecodeError::SecurityEnabled => byte::Error::BadInput {
+                err: "SecurityEnabled (use Frame::try_read_and_unsecure)",
+            },
+        }
+    }
+}
+
+/// Errors that can occur while securing or unsecuring a frame
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum EncodeError {
+    /// Something went wrong while writing a frame's bytes to the destination
+    WriteError,
+    /// Security is enabled but no security context is specified
+    MissingSecurityCtx,
+    /// Something went wrong, but it is unclear what/how it did
+    UnknownError,
+}
+
+impl From<EncodeError> for byte::Error {
+    fn from(e: EncodeError) -> Self {
+        match e {
+            EncodeError::WriteError => byte::Error::BadInput { err: "WriteError" },
+            EncodeError::MissingSecurityCtx => byte::Error::BadInput {
+                err: "MissingSecurityCtx",
+            },
+            EncodeError::UnknownError => byte::Error::BadInput {
+                err: "UnknownError",
+            },
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::mac::beacon;
     use crate::mac::command;
-    use crate::mac::{Address, ExtendedAddress, FrameVersion, PanId, Security, ShortAddress};
+    use crate::mac::frame::*;
+    use crate::mac::{Address, ExtendedAddress, FrameVersion, PanId, ShortAddress};
 
     #[test]
     fn decode_ver0_pan_id_compression() {
         let data = [
             0x41, 0x88, 0x91, 0x8f, 0x20, 0xff, 0xff, 0x33, 0x44, 0x00, 0x00,
         ];
-        let frame: Frame = data.read(&mut 0).unwrap();
+
+        let frame: Frame = data.read_with(&mut 0, FooterMode::None).unwrap();
         let hdr = frame.header;
         assert_eq!(hdr.frame_type, FrameType::Data);
-        assert_eq!(hdr.security, Security::None);
+        assert_eq!(hdr.has_security(), false);
         assert_eq!(hdr.frame_pending, false);
         assert_eq!(hdr.ack_request, false);
         assert_eq!(hdr.pan_id_compress, true);
@@ -349,7 +551,7 @@ mod tests {
         let data = [
             0x41, 0x80, 0x91, 0x8f, 0x20, 0xff, 0xff, 0x33, 0x44, 0x00, 0x00,
         ];
-        let frame = data.read::<Frame>(&mut 0);
+        let frame = data.read_with::<Frame>(&mut 0, FooterMode::None);
         assert!(frame.is_err());
         if let Err(e) = frame {
             assert_eq!(e, DecodeError::InvalidAddressMode(0).into())
@@ -362,10 +564,10 @@ mod tests {
             0x21, 0xc8, 0x8b, 0xff, 0xff, 0x02, 0x00, 0x23, 0x00, 0x60, 0xe2, 0x16, 0x21, 0x1c,
             0x4a, 0xc2, 0xae, 0xaa, 0xbb, 0xcc,
         ];
-        let frame: Frame = data.read(&mut 0).unwrap();
+        let frame: Frame = data.read_with(&mut 0, FooterMode::None).unwrap();
         let hdr = frame.header;
         assert_eq!(hdr.frame_type, FrameType::Data);
-        assert_eq!(hdr.security, Security::None);
+        assert_eq!(hdr.has_security(), false);
         assert_eq!(hdr.frame_pending, false);
         assert_eq!(hdr.ack_request, true);
         assert_eq!(hdr.pan_id_compress, false);
@@ -389,7 +591,6 @@ mod tests {
         let frame = Frame {
             header: Header {
                 frame_type: FrameType::Data,
-                security: Security::None,
                 frame_pending: false,
                 ack_request: false,
                 pan_id_compress: false,
@@ -397,6 +598,7 @@ mod tests {
                 destination: Some(Address::Short(PanId(0x1234), ShortAddress(0x5678))),
                 source: Some(Address::Short(PanId(0x4321), ShortAddress(0x9abc))),
                 seq: 0x01,
+                auxiliary_security_header: None,
             },
             content: FrameContent::Data,
             payload: &[0xde, 0xf0],
@@ -404,7 +606,12 @@ mod tests {
         };
         let mut buf = [0u8; 32];
         let mut len = 0usize;
-        buf.write(&mut len, frame).unwrap();
+        buf.write_with(
+            &mut len,
+            frame,
+            &mut FrameSerDesContext::no_security(FooterMode::None),
+        )
+        .unwrap();
         assert_eq!(len, 13);
         assert_eq!(
             buf[..len],
@@ -417,7 +624,6 @@ mod tests {
         let frame = Frame {
             header: Header {
                 frame_type: FrameType::Beacon,
-                security: Security::None,
                 frame_pending: true,
                 ack_request: false,
                 pan_id_compress: false,
@@ -428,6 +634,7 @@ mod tests {
                 )),
                 source: Some(Address::Short(PanId(0x4321), ShortAddress(0x9abc))),
                 seq: 0xff,
+                auxiliary_security_header: None,
             },
             content: FrameContent::Beacon(beacon::Beacon {
                 superframe_spec: beacon::SuperframeSpecification {
@@ -446,7 +653,12 @@ mod tests {
         };
         let mut buf = [0u8; 32];
         let mut len = 0usize;
-        buf.write(&mut len, frame).unwrap();
+        buf.write_with(
+            &mut len,
+            frame,
+            &mut FrameSerDesContext::no_security(FooterMode::None),
+        )
+        .unwrap();
         assert_eq!(len, 23);
         assert_eq!(
             buf[..len],
@@ -462,7 +674,6 @@ mod tests {
         let frame = Frame {
             header: Header {
                 frame_type: FrameType::Acknowledgement,
-                security: Security::None,
                 frame_pending: false,
                 ack_request: false,
                 pan_id_compress: true,
@@ -473,6 +684,7 @@ mod tests {
                 )),
                 source: Some(Address::Short(PanId(0x1234), ShortAddress(0x9abc))),
                 seq: 0xff,
+                auxiliary_security_header: None,
             },
             content: FrameContent::Acknowledgement,
             payload: &[],
@@ -480,7 +692,12 @@ mod tests {
         };
         let mut buf = [0u8; 32];
         let mut len = 0usize;
-        buf.write(&mut len, frame).unwrap();
+        buf.write_with(
+            &mut len,
+            frame,
+            &mut FrameSerDesContext::no_security(FooterMode::None),
+        )
+        .unwrap();
         assert_eq!(len, 15);
         assert_eq!(
             buf[..len],
@@ -496,7 +713,6 @@ mod tests {
         let frame = Frame {
             header: Header {
                 frame_type: FrameType::MacCommand,
-                security: Security::None,
                 frame_pending: false,
                 ack_request: true,
                 pan_id_compress: false,
@@ -504,6 +720,7 @@ mod tests {
                 destination: None,
                 source: Some(Address::Short(PanId(0x1234), ShortAddress(0x9abc))),
                 seq: 0xff,
+                auxiliary_security_header: None,
             },
             content: FrameContent::Command(command::Command::DataRequest),
             payload: &[],
@@ -511,7 +728,12 @@ mod tests {
         };
         let mut buf = [0u8; 32];
         let mut len = 0usize;
-        buf.write(&mut len, frame).unwrap();
+        buf.write_with(
+            &mut len,
+            frame,
+            &mut FrameSerDesContext::no_security(FooterMode::None),
+        )
+        .unwrap();
         assert_eq!(len, 8);
         assert_eq!(buf[..len], [0x23, 0xa0, 0xff, 0x34, 0x12, 0xbc, 0x9a, 0x04]);
     }
