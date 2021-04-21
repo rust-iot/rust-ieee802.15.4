@@ -150,6 +150,7 @@ use self::security::{
 /// [decode]: #method.try_read
 /// [encode]: #method.try_write
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Frame<'p> {
     /// Header
     pub header: Header,
@@ -367,6 +368,7 @@ impl<'a> TryRead<'a, FooterMode> for Frame<'a> {
 ///
 /// [`Frame::try_write`](Frame::try_write)
 #[derive(Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum FooterMode {
     /// Don't read/write the footer
     None,
@@ -382,6 +384,7 @@ impl Default for FooterMode {
 
 /// Content of a frame
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum FrameContent {
     /// Beacon frame content
     Beacon(Beacon),
@@ -391,6 +394,14 @@ pub enum FrameContent {
     Acknowledgement,
     /// MAC command frame
     Command(Command),
+    /// Multipurpose frame
+    Multipurpose,
+
+    /// Fragment of Fragment Ack frame
+    FragOrFragAck,
+
+    /// Extended frame
+    Extended,
 }
 
 impl TryWrite for FrameContent {
@@ -398,8 +409,8 @@ impl TryWrite for FrameContent {
         let offset = &mut 0;
         match self {
             FrameContent::Beacon(beacon) => bytes.write(offset, beacon)?,
-            FrameContent::Data | FrameContent::Acknowledgement => (),
             FrameContent::Command(command) => bytes.write(offset, command)?,
+            _ => (),
         };
         Ok(*offset)
     }
@@ -414,6 +425,9 @@ impl TryRead<'_, &Header> for FrameContent {
                 FrameType::Data => FrameContent::Data,
                 FrameType::Acknowledgement => FrameContent::Acknowledgement,
                 FrameType::MacCommand => FrameContent::Command(bytes.read(offset)?),
+                FrameType::Multipurpose => FrameContent::Multipurpose,
+                FrameType::FragOrFragAck => FrameContent::FragOrFragAck,
+                FrameType::Extended => FrameContent::Extended,
             },
             *offset,
         ))
@@ -422,6 +436,7 @@ impl TryRead<'_, &Header> for FrameContent {
 
 /// Signals an error that occured while decoding bytes
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum DecodeError {
     /// Buffer does not contain enough bytes
     NotEnoughBytes,
@@ -491,6 +506,7 @@ impl From<DecodeError> for byte::Error {
 
 /// Errors that can occur while securing or unsecuring a frame
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum EncodeError {
     /// Something went wrong while writing a frame's bytes to the destination
     WriteError,

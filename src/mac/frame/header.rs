@@ -22,6 +22,7 @@ use super::{security::AuxiliarySecurityHeader, EncodeError};
 ///
 /// [MAC frame format start at 5.2]: http://ecee.colorado.edu/~liue/teaching/comm_standards/2015S_zigbee/802.15.4-2011.pdf
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Header {
     // * Frame Control Field * /
     /// Frame Type
@@ -50,6 +51,12 @@ pub struct Header {
     /// field is set to `false`, then the PAN Identifier field shall be present if and only if the corresponding address is
     /// present.
     pub pan_id_compress: bool,
+
+    /// Suppress sequence number
+    pub seq_no_suppress: bool,
+
+    /// Information element present
+    pub ie_present: bool,
 
     /// Frame version
     pub version: FrameVersion,
@@ -120,6 +127,9 @@ impl TryRead<'_> for Header {
         let ack_request = ((bits & mask::ACK) >> offset::ACK) as u8;
         let pan_id_compress = ((bits & mask::PAN_ID_COMPRESS) >> offset::PAN_ID_COMPRESS) as u8;
 
+        let seq_no_suppress = ((bits & mask::SEQ_NO_SUPPRESS) >> offset::SEQ_NO_SUPPRESS) as u8;
+        let ie_present = ((bits & mask::IE_PRESENT) >> offset::IE_PRESENT) as u8;
+
         let dest_addr_mode = ((bits & mask::DEST_ADDR_MODE) >> offset::DEST_ADDR_MODE) as u8;
         let version = ((bits & mask::VERSION) >> offset::VERSION) as u8;
         let src_addr_mode = ((bits & mask::SRC_ADDR_MODE) >> offset::SRC_ADDR_MODE) as u8;
@@ -136,6 +146,8 @@ impl TryRead<'_> for Header {
         let frame_pending = frame_pending > 0;
         let ack_request = ack_request > 0;
         let pan_id_compress = pan_id_compress > 0;
+        let seq_no_suppress = seq_no_suppress > 0;
+        let ie_present = ie_present > 0;
 
         /* Decode header depending on Frame Control Fields */
 
@@ -189,6 +201,8 @@ impl TryRead<'_> for Header {
             frame_pending,
             ack_request,
             pan_id_compress,
+            seq_no_suppress,
+            ie_present,
             version,
             seq,
             destination,
@@ -278,6 +292,7 @@ where
 /// let pan_id = PanId(0x0123);
 /// ```
 #[derive(Clone, Copy, Debug, Eq, Hash, Hash32, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct PanId(pub u16);
 
 impl PanId {
@@ -315,6 +330,7 @@ impl TryRead<'_> for PanId {
 /// let short_address = ShortAddress(0x0123);
 /// ```
 #[derive(Clone, Copy, Debug, Eq, Hash, Hash32, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ShortAddress(pub u16);
 
 impl ShortAddress {
@@ -354,6 +370,7 @@ impl TryRead<'_> for ShortAddress {
 /// let ext_address = ExtendedAddress(0x0123456789abcdef);
 /// ```
 #[derive(Clone, Copy, Debug, Eq, Hash, Hash32, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ExtendedAddress(pub u64);
 
 impl ExtendedAddress {
@@ -383,6 +400,7 @@ impl TryRead<'_> for ExtendedAddress {
 
 /// An address that might contain an PAN ID and address
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Address {
     /// Short (16-bit) address and PAN ID (16-bit)
     Short(PanId, ShortAddress),
@@ -391,6 +409,7 @@ pub enum Address {
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 enum AddressEncoding {
     Normal,
     Compressed,
