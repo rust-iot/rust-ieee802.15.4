@@ -15,6 +15,7 @@ macro_rules! extended_enum {
 
         $(#[$outer])*
         #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+        #[cfg_attr(feature = "defmt", derive(defmt::Format))]
         pub enum $name {
             $(
                 $(#[$inner])*

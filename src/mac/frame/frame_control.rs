@@ -8,6 +8,7 @@ use super::DecodeError;
 ///
 /// [`Header`]: super::header::Header
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum FrameType {
     /// Beacon
     Beacon = 0b000,
@@ -20,6 +21,15 @@ pub enum FrameType {
 
     /// MAC command
     MacCommand = 0b011,
+
+    /// Multipurpose
+    Multipurpose = 0b101,
+
+    /// Fragment of Fragment Ack
+    FragOrFragAck = 0b110,
+
+    /// Extended
+    Extended = 0b111,
 }
 
 impl FrameType {
@@ -41,6 +51,9 @@ impl FrameType {
             0b001 => Some(FrameType::Data),
             0b010 => Some(FrameType::Acknowledgement),
             0b011 => Some(FrameType::MacCommand),
+            0b101 => Some(FrameType::Multipurpose),
+            0b110 => Some(FrameType::FragOrFragAck),
+            0b111 => Some(FrameType::Extended),
             _ => None,
         }
     }
@@ -48,6 +61,7 @@ impl FrameType {
 
 /// Defines version information for a frame
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum FrameVersion {
     /// A frame conforming to the 802.15.4-2003 standard
     Ieee802154_2003 = 0b00,
@@ -92,6 +106,7 @@ impl FrameVersion {
 /// assert_eq!(address_mode, AddressMode::Short);
 /// ```
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum AddressMode {
     /// PAN identifier and address field are not present
     None = 0b00,
@@ -150,6 +165,8 @@ pub mod offset {
     pub const PENDING: u16 = 4;
     pub const ACK: u16 = 5;
     pub const PAN_ID_COMPRESS: u16 = 6;
+    pub const SEQ_NO_SUPPRESS: u16 = 8;
+    pub const IE_PRESENT:      u16 = 9;
     pub const DEST_ADDR_MODE: u16 = 10;
     pub const VERSION: u16 = 12;
     pub const SRC_ADDR_MODE: u16 = 14u16;
@@ -161,6 +178,8 @@ pub mod mask {
     pub const PENDING: u16 = 0x0010;
     pub const ACK: u16 = 0x0020;
     pub const PAN_ID_COMPRESS: u16 = 0x0040;
+    pub const SEQ_NO_SUPPRESS: u16 = 0x0100;
+    pub const IE_PRESENT: u16 = 0x0200;
     pub const DEST_ADDR_MODE: u16 = 0x0C00;
     pub const VERSION: u16 = 0x3000;
     pub const SRC_ADDR_MODE: u16 = 0xC000;

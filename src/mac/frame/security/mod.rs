@@ -191,6 +191,7 @@ pub enum AddressingMode {
 }
 
 #[derive(Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 /// A partial device descriptor
 pub struct DeviceDescriptor {
     /// The frame counter associated with this device

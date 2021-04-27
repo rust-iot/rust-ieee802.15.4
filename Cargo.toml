@@ -12,6 +12,8 @@ readme        = "README.md"
 categories    = ["embedded", "network-programming", "no-std"]
 keywords      = ["WPAN"]
 
+[features]
+
 
 [badges]
 travis-ci   = { repository = "braun-robotics/ieee802154" }
@@ -23,7 +25,9 @@ hash32-derive = "0.1"
 byte = "0.2.4"
 cipher = { version = "0.2", default-features = false }
 ccm = {version = "0.3.0", default-features = false}
+defmt = { version = "0.2.1", optional = true }
 
 [dev-dependencies]
 aes-soft = {version = "0.6.4", default-features = false}
 rand = "0.8.3"
+
