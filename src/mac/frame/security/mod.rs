@@ -731,9 +731,6 @@ impl From<SecurityError> for byte::Error {
 
 #[cfg(test)]
 mod tests {
-    extern crate aes_soft;
-    extern crate ccm;
-    extern crate rand;
     use crate::mac::frame::header::*;
     use crate::mac::frame::security::{security_control::*, *};
     use crate::mac::frame::*;
