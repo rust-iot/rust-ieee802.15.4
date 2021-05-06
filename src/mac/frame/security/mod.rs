@@ -32,7 +32,7 @@
 //!     FooterMode,
 //! };
 //! use ccm::aead::generic_array::GenericArray;
-//! use aes_soft::Aes128;
+//! use aes::Aes128;
 //! use byte::TryWrite;
 //!
 //! /// Static key descriptor lookup struct that always returns
@@ -179,7 +179,7 @@ use ccm::{
 use core::marker::PhantomData;
 
 pub use auxiliary_security_header::{AuxiliarySecurityHeader, KeyIdentifier, KeySource};
-pub use cipher::{generic_array::typenum::consts::U16, BlockCipher, NewBlockCipher};
+pub use cipher::{generic_array::typenum::consts::U16, BlockCipher, BlockEncrypt, NewBlockCipher};
 pub use security_control::{KeyIdentifierMode, SecurityControl, SecurityLevel};
 
 /// The addressing mode to use during descriptor lookups
@@ -321,7 +321,7 @@ pub(crate) fn secure_frame<'a, AEADBLKCIPH, KEYDESCLO>(
     buffer: &mut [u8],
 ) -> Result<usize, SecurityError>
 where
-    AEADBLKCIPH: NewBlockCipher + BlockCipher<BlockSize = U16>,
+    AEADBLKCIPH: NewBlockCipher + BlockCipher<BlockSize = U16> + BlockEncrypt,
     KEYDESCLO: KeyDescriptorLookup<AEADBLKCIPH::KeySize>,
 {
     match footer_mode {
@@ -484,7 +484,7 @@ pub(crate) fn unsecure_frame<'a, AEADBLKCIPH, KEYDESCLO, DEVDESCLO>(
     dev_desc_lo: &mut DEVDESCLO,
 ) -> Result<usize, SecurityError>
 where
-    AEADBLKCIPH: NewBlockCipher + BlockCipher<BlockSize = U16>,
+    AEADBLKCIPH: NewBlockCipher + BlockCipher<BlockSize = U16> + BlockEncrypt,
     KEYDESCLO: KeyDescriptorLookup<AEADBLKCIPH::KeySize>,
     DEVDESCLO: DeviceDescriptorLookup,
 {
@@ -731,14 +731,11 @@ impl From<SecurityError> for byte::Error {
 
 #[cfg(test)]
 mod tests {
-    extern crate aes_soft;
-    extern crate ccm;
-    extern crate rand;
     use crate::mac::frame::header::*;
     use crate::mac::frame::security::{security_control::*, *};
     use crate::mac::frame::*;
     use crate::mac::{frame::frame_control::*, FooterMode};
-    use aes_soft::Aes128;
+    use aes::Aes128;
     use rand::Rng;
 
     struct StaticKeyLookup();

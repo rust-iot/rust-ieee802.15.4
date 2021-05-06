@@ -19,7 +19,7 @@ pub mod header;
 pub mod security;
 use byte::{ctx::Bytes, BytesExt, TryRead, TryWrite, LE};
 use ccm::aead::generic_array::typenum::consts::U16;
-use cipher::{BlockCipher, NewBlockCipher};
+use cipher::{BlockCipher, BlockEncrypt, NewBlockCipher};
 use header::FrameType;
 pub use header::Header;
 
@@ -216,7 +216,7 @@ impl FrameSerDesContext<'_, Unimplemented, Unimplemented> {
 impl<AEADBLKCIPH, KEYDESCLO> TryWrite<&mut FrameSerDesContext<'_, AEADBLKCIPH, KEYDESCLO>>
     for Frame<'_>
 where
-    AEADBLKCIPH: NewBlockCipher + BlockCipher<BlockSize = U16>,
+    AEADBLKCIPH: NewBlockCipher + BlockCipher<BlockSize = U16> + BlockEncrypt,
     KEYDESCLO: KeyDescriptorLookup<AEADBLKCIPH::KeySize>,
 {
     fn try_write(
@@ -276,7 +276,7 @@ impl<'a> Frame<'a> {
         dev_desc_lo: &mut DEVDESCLO,
     ) -> Result<(Frame<'a>, usize), SecurityError>
     where
-        AEADBLKCIPH: NewBlockCipher + BlockCipher<BlockSize = U16>,
+        AEADBLKCIPH: NewBlockCipher + BlockCipher<BlockSize = U16> + BlockEncrypt,
         KEYDESCLO: KeyDescriptorLookup<AEADBLKCIPH::KeySize>,
         DEVDESCLO: DeviceDescriptorLookup,
     {
