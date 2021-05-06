@@ -5,6 +5,9 @@ pub mod command;
 pub mod frame;
 
 pub use frame::header::{
-    Address, AddressMode, ExtendedAddress, FrameType, FrameVersion, Header, PanId, ShortAddress,
+    Address, AddressMode, ExtendedAddress, FrameType, FrameVersion, Header,
+    PanId, ShortAddress,
 };
-pub use frame::{security, DecodeError, FooterMode, Frame, FrameContent, FrameSerDesContext};
+pub use frame::{
+    security, DecodeError, FooterMode, Frame, FrameContent, FrameSerDesContext,
+};

@@ -1,6 +1,8 @@
 //! All auxiliary security header structs and functions
 
-use super::{KeyDescriptorLookup, KeyIdentifierMode, SecurityContext, SecurityControl};
+use super::{
+    KeyDescriptorLookup, KeyIdentifierMode, SecurityContext, SecurityControl,
+};
 use byte::{BytesExt, TryRead, TryWrite, LE};
 use cipher::{consts::U16, BlockCipher, NewBlockCipher};
 
@@ -38,7 +40,10 @@ impl AuxiliarySecurityHeader {
     }
 
     /// Create a new Auxiliary Security Header with the specified control and key identifier
-    pub fn new(control: SecurityControl, key_identifier: Option<KeyIdentifier>) -> Self {
+    pub fn new(
+        control: SecurityControl,
+        key_identifier: Option<KeyIdentifier>,
+    ) -> Self {
         Self {
             control,
             key_identifier,
@@ -91,10 +96,12 @@ impl TryRead<'_> for AuxiliarySecurityHeader {
             };
             match control.key_id_mode {
                 KeyIdentifierMode::KeySource4 => {
-                    key_identifier.key_source = Some(KeySource::Short(bytes.read(offset)?));
+                    key_identifier.key_source =
+                        Some(KeySource::Short(bytes.read(offset)?));
                 }
                 KeyIdentifierMode::KeySource8 => {
-                    key_identifier.key_source = Some(KeySource::Long(bytes.read(offset)?));
+                    key_identifier.key_source =
+                        Some(KeySource::Long(bytes.read(offset)?));
                 }
                 _ => {}
             }

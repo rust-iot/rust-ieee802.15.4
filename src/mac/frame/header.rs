@@ -113,21 +113,25 @@ impl TryRead<'_> for Header {
         /* Decode Frame Control Field */
         let bits: u16 = bytes.read_with(offset, LE)?;
 
-        let frame_type = ((bits & mask::FRAME_TYPE) >> offset::FRAME_TYPE) as u8;
+        let frame_type =
+            ((bits & mask::FRAME_TYPE) >> offset::FRAME_TYPE) as u8;
         let security = ((bits & mask::SECURITY) >> offset::SECURITY) as u8;
 
         let frame_pending = ((bits & mask::PENDING) >> offset::PENDING) as u8;
         let ack_request = ((bits & mask::ACK) >> offset::ACK) as u8;
-        let pan_id_compress = ((bits & mask::PAN_ID_COMPRESS) >> offset::PAN_ID_COMPRESS) as u8;
+        let pan_id_compress =
+            ((bits & mask::PAN_ID_COMPRESS) >> offset::PAN_ID_COMPRESS) as u8;
 
-        let dest_addr_mode = ((bits & mask::DEST_ADDR_MODE) >> offset::DEST_ADDR_MODE) as u8;
+        let dest_addr_mode =
+            ((bits & mask::DEST_ADDR_MODE) >> offset::DEST_ADDR_MODE) as u8;
         let version = ((bits & mask::VERSION) >> offset::VERSION) as u8;
-        let src_addr_mode = ((bits & mask::SRC_ADDR_MODE) >> offset::SRC_ADDR_MODE) as u8;
+        let src_addr_mode =
+            ((bits & mask::SRC_ADDR_MODE) >> offset::SRC_ADDR_MODE) as u8;
 
-        let version =
-            FrameVersion::from_bits(version).ok_or(DecodeError::InvalidFrameVersion(version))?;
-        let frame_type =
-            FrameType::from_bits(frame_type).ok_or(DecodeError::InvalidFrameType(frame_type))?;
+        let version = FrameVersion::from_bits(version)
+            .ok_or(DecodeError::InvalidFrameVersion(version))?;
+        let frame_type = FrameType::from_bits(frame_type)
+            .ok_or(DecodeError::InvalidFrameType(frame_type))?;
         let dest_addr_mode = AddressMode::from_bits(dest_addr_mode)?;
         let src_addr_mode = AddressMode::from_bits(src_addr_mode)?;
 
@@ -143,10 +147,13 @@ impl TryRead<'_> for Header {
 
         let destination = match dest_addr_mode {
             AddressMode::None => None,
-            AddressMode::Short => Some(Address::Short(bytes.read(offset)?, bytes.read(offset)?)),
-            AddressMode::Extended => {
-                Some(Address::Extended(bytes.read(offset)?, bytes.read(offset)?))
+            AddressMode::Short => {
+                Some(Address::Short(bytes.read(offset)?, bytes.read(offset)?))
             }
+            AddressMode::Extended => Some(Address::Extended(
+                bytes.read(offset)?,
+                bytes.read(offset)?,
+            )),
         };
 
         if pan_id_compress {
@@ -164,7 +171,10 @@ impl TryRead<'_> for Header {
                         bytes.read(offset)?,
                     ))
                 } else {
-                    Some(Address::Short(bytes.read(offset)?, bytes.read(offset)?))
+                    Some(Address::Short(
+                        bytes.read(offset)?,
+                        bytes.read(offset)?,
+                    ))
                 }
             }
             AddressMode::Extended => {
@@ -174,7 +184,10 @@ impl TryRead<'_> for Header {
                         bytes.read(offset)?,
                     ))
                 } else {
-                    Some(Address::Extended(bytes.read(offset)?, bytes.read(offset)?))
+                    Some(Address::Extended(
+                        bytes.read(offset)?,
+                        bytes.read(offset)?,
+                    ))
                 }
             }
         };
@@ -200,8 +213,8 @@ impl TryRead<'_> for Header {
     }
 }
 
-impl<AEADBLKCIPH, KEYDESCLO> TryWrite<&Option<&mut SecurityContext<AEADBLKCIPH, KEYDESCLO>>>
-    for Header
+impl<AEADBLKCIPH, KEYDESCLO>
+    TryWrite<&Option<&mut SecurityContext<AEADBLKCIPH, KEYDESCLO>>> for Header
 where
     AEADBLKCIPH: NewBlockCipher + BlockCipher<BlockSize = U16>,
     KEYDESCLO: KeyDescriptorLookup<AEADBLKCIPH::KeySize>,
@@ -238,7 +251,11 @@ where
 
         match (self.source, self.pan_id_compress) {
             (Some(source), true) => {
-                bytes.write_with(offset, source, AddressEncoding::Compressed)?;
+                bytes.write_with(
+                    offset,
+                    source,
+                    AddressEncoding::Compressed,
+                )?;
             }
             (Some(source), false) => {
                 bytes.write_with(offset, source, AddressEncoding::Normal)?;
@@ -397,7 +414,11 @@ enum AddressEncoding {
 }
 
 impl TryWrite<AddressEncoding> for Address {
-    fn try_write(self, bytes: &mut [u8], enc: AddressEncoding) -> byte::Result<usize> {
+    fn try_write(
+        self,
+        bytes: &mut [u8],
+        enc: AddressEncoding,
+    ) -> byte::Result<usize> {
         let offset = &mut 0;
         match (self, enc) {
             (Address::Short(pan_id, addr), AddressEncoding::Normal) => {

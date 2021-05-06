@@ -24,8 +24,8 @@ use header::FrameType;
 pub use header::Header;
 
 use self::security::{
-    default::Unimplemented, DeviceDescriptorLookup, KeyDescriptorLookup, SecurityContext,
-    SecurityError,
+    default::Unimplemented, DeviceDescriptorLookup, KeyDescriptorLookup,
+    SecurityContext, SecurityError,
 };
 
 /// An IEEE 802.15.4 MAC frame
@@ -213,8 +213,8 @@ impl FrameSerDesContext<'_, Unimplemented, Unimplemented> {
     }
 }
 
-impl<AEADBLKCIPH, KEYDESCLO> TryWrite<&mut FrameSerDesContext<'_, AEADBLKCIPH, KEYDESCLO>>
-    for Frame<'_>
+impl<AEADBLKCIPH, KEYDESCLO>
+    TryWrite<&mut FrameSerDesContext<'_, AEADBLKCIPH, KEYDESCLO>> for Frame<'_>
 where
     AEADBLKCIPH: NewBlockCipher + BlockCipher<BlockSize = U16> + BlockEncrypt,
     KEYDESCLO: KeyDescriptorLookup<AEADBLKCIPH::KeySize>,
@@ -233,8 +233,12 @@ where
         let mut security_enabled = false;
 
         if let Some(ctx) = context.security_ctx.as_mut() {
-            let write_secured =
-                security::secure_frame(self, ctx, context.footer_mode, &mut bytes[*offset..]);
+            let write_secured = security::secure_frame(
+                self,
+                ctx,
+                context.footer_mode,
+                &mut bytes[*offset..],
+            );
             match write_secured {
                 Ok(len) => {
                     security_enabled = true;
@@ -276,7 +280,8 @@ impl<'a> Frame<'a> {
         dev_desc_lo: &mut DEVDESCLO,
     ) -> Result<(Frame<'a>, usize), SecurityError>
     where
-        AEADBLKCIPH: NewBlockCipher + BlockCipher<BlockSize = U16> + BlockEncrypt,
+        AEADBLKCIPH:
+            NewBlockCipher + BlockCipher<BlockSize = U16> + BlockEncrypt,
         KEYDESCLO: KeyDescriptorLookup<AEADBLKCIPH::KeySize>,
         DEVDESCLO: DeviceDescriptorLookup,
     {
@@ -305,7 +310,8 @@ impl<'a> Frame<'a> {
                 return Err(SecurityError::InvalidSecContext);
             }
         }
-        let payload = buf.read_with(offset, Bytes::Len(buf.len() - *offset - tag_size))?;
+        let payload =
+            buf.read_with(offset, Bytes::Len(buf.len() - *offset - tag_size))?;
 
         let frame = Frame {
             header,
@@ -325,7 +331,10 @@ impl<'a> TryRead<'a, FooterMode> for Frame<'a> {
     /// error will be returned if the frame contained in `bytes` does have it enabled.
     ///
     /// If you expect to receive secured frames, use [`Frame::try_read_and_unsecure`] instead,
-    fn try_read(bytes: &'a [u8], mode: FooterMode) -> byte::Result<(Self, usize)> {
+    fn try_read(
+        bytes: &'a [u8],
+        mode: FooterMode,
+    ) -> byte::Result<(Self, usize)> {
         let offset = &mut 0;
         let header: Header = bytes.read(offset)?;
         let content = bytes.read_with(offset, &header)?;
@@ -340,7 +349,8 @@ impl<'a> TryRead<'a, FooterMode> for Frame<'a> {
                 0u16,
             ),
             FooterMode::Explicit => (
-                bytes.read_with(offset, Bytes::Len(bytes.len() - *offset - 2))?,
+                bytes
+                    .read_with(offset, Bytes::Len(bytes.len() - *offset - 2))?,
                 bytes.read_with(offset, LE)?,
             ),
         };
@@ -413,7 +423,9 @@ impl TryRead<'_, &Header> for FrameContent {
                 FrameType::Beacon => FrameContent::Beacon(bytes.read(offset)?),
                 FrameType::Data => FrameContent::Data,
                 FrameType::Acknowledgement => FrameContent::Acknowledgement,
-                FrameType::MacCommand => FrameContent::Command(bytes.read(offset)?),
+                FrameType::MacCommand => {
+                    FrameContent::Command(bytes.read(offset)?)
+                }
             },
             *offset,
         ))
@@ -503,7 +515,9 @@ pub enum EncodeError {
 impl From<EncodeError> for byte::Error {
     fn from(e: EncodeError) -> Self {
         match e {
-            EncodeError::WriteError => byte::Error::BadInput { err: "WriteError" },
+            EncodeError::WriteError => {
+                byte::Error::BadInput { err: "WriteError" }
+            }
             EncodeError::MissingSecurityCtx => byte::Error::BadInput {
                 err: "MissingSecurityCtx",
             },
@@ -519,7 +533,9 @@ mod tests {
     use crate::mac::beacon;
     use crate::mac::command;
     use crate::mac::frame::*;
-    use crate::mac::{Address, ExtendedAddress, FrameVersion, PanId, ShortAddress};
+    use crate::mac::{
+        Address, ExtendedAddress, FrameVersion, PanId, ShortAddress,
+    };
 
     #[test]
     fn decode_ver0_pan_id_compression() {
@@ -561,8 +577,8 @@ mod tests {
     #[test]
     fn decode_ver0_extended() {
         let data = [
-            0x21, 0xc8, 0x8b, 0xff, 0xff, 0x02, 0x00, 0x23, 0x00, 0x60, 0xe2, 0x16, 0x21, 0x1c,
-            0x4a, 0xc2, 0xae, 0xaa, 0xbb, 0xcc,
+            0x21, 0xc8, 0x8b, 0xff, 0xff, 0x02, 0x00, 0x23, 0x00, 0x60, 0xe2,
+            0x16, 0x21, 0x1c, 0x4a, 0xc2, 0xae, 0xaa, 0xbb, 0xcc,
         ];
         let frame: Frame = data.read_with(&mut 0, FooterMode::None).unwrap();
         let hdr = frame.header;
@@ -595,8 +611,14 @@ mod tests {
                 ack_request: false,
                 pan_id_compress: false,
                 version: FrameVersion::Ieee802154_2003,
-                destination: Some(Address::Short(PanId(0x1234), ShortAddress(0x5678))),
-                source: Some(Address::Short(PanId(0x4321), ShortAddress(0x9abc))),
+                destination: Some(Address::Short(
+                    PanId(0x1234),
+                    ShortAddress(0x5678),
+                )),
+                source: Some(Address::Short(
+                    PanId(0x4321),
+                    ShortAddress(0x9abc),
+                )),
                 seq: 0x01,
                 auxiliary_security_header: None,
             },
@@ -615,7 +637,10 @@ mod tests {
         assert_eq!(len, 13);
         assert_eq!(
             buf[..len],
-            [0x01, 0x88, 0x01, 0x34, 0x12, 0x78, 0x56, 0x21, 0x43, 0xbc, 0x9a, 0xde, 0xf0]
+            [
+                0x01, 0x88, 0x01, 0x34, 0x12, 0x78, 0x56, 0x21, 0x43, 0xbc,
+                0x9a, 0xde, 0xf0
+            ]
         );
     }
 
@@ -632,7 +657,10 @@ mod tests {
                     PanId(0x1234),
                     ExtendedAddress(0x1122334455667788),
                 )),
-                source: Some(Address::Short(PanId(0x4321), ShortAddress(0x9abc))),
+                source: Some(Address::Short(
+                    PanId(0x4321),
+                    ShortAddress(0x9abc),
+                )),
                 seq: 0xff,
                 auxiliary_security_header: None,
             },
@@ -645,7 +673,8 @@ mod tests {
                     pan_coordinator: false,
                     association_permit: false,
                 },
-                guaranteed_time_slot_info: beacon::GuaranteedTimeSlotInformation::new(),
+                guaranteed_time_slot_info:
+                    beacon::GuaranteedTimeSlotInformation::new(),
                 pending_address: beacon::PendingAddress::new(),
             }),
             payload: &[0xde, 0xf0],
@@ -663,8 +692,9 @@ mod tests {
         assert_eq!(
             buf[..len],
             [
-                0x10, 0x9c, 0xff, 0x34, 0x12, 0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, 0x21,
-                0x43, 0xbc, 0x9a, 0xff, 0x0f, 0x00, 0x00, 0xde, 0xf0
+                0x10, 0x9c, 0xff, 0x34, 0x12, 0x88, 0x77, 0x66, 0x55, 0x44,
+                0x33, 0x22, 0x11, 0x21, 0x43, 0xbc, 0x9a, 0xff, 0x0f, 0x00,
+                0x00, 0xde, 0xf0
             ]
         );
     }
@@ -682,7 +712,10 @@ mod tests {
                     PanId(0x1234),
                     ExtendedAddress(0x1122334455667788),
                 )),
-                source: Some(Address::Short(PanId(0x1234), ShortAddress(0x9abc))),
+                source: Some(Address::Short(
+                    PanId(0x1234),
+                    ShortAddress(0x9abc),
+                )),
                 seq: 0xff,
                 auxiliary_security_header: None,
             },
@@ -702,8 +735,8 @@ mod tests {
         assert_eq!(
             buf[..len],
             [
-                0x42, 0x8c, 0xff, 0x34, 0x12, 0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, 0xbc,
-                0x9a
+                0x42, 0x8c, 0xff, 0x34, 0x12, 0x88, 0x77, 0x66, 0x55, 0x44,
+                0x33, 0x22, 0x11, 0xbc, 0x9a
             ]
         );
     }
@@ -718,7 +751,10 @@ mod tests {
                 pan_id_compress: false,
                 version: FrameVersion::Ieee802154,
                 destination: None,
-                source: Some(Address::Short(PanId(0x1234), ShortAddress(0x9abc))),
+                source: Some(Address::Short(
+                    PanId(0x1234),
+                    ShortAddress(0x9abc),
+                )),
                 seq: 0xff,
                 auxiliary_security_header: None,
             },
@@ -735,6 +771,9 @@ mod tests {
         )
         .unwrap();
         assert_eq!(len, 8);
-        assert_eq!(buf[..len], [0x23, 0xa0, 0xff, 0x34, 0x12, 0xbc, 0x9a, 0x04]);
+        assert_eq!(
+            buf[..len],
+            [0x23, 0xa0, 0xff, 0x34, 0x12, 0xbc, 0x9a, 0x04]
+        );
     }
 }
