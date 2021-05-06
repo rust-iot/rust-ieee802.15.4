@@ -10,7 +10,10 @@ use ccm::aead::generic_array::{
     typenum::consts::{U1, U16},
     GenericArray,
 };
-use cipher::{Block, BlockCipher, BlockCipherKey, BlockDecrypt, BlockEncrypt, NewBlockCipher};
+use cipher::{
+    Block, BlockCipher, BlockCipherKey, BlockDecrypt, BlockEncrypt,
+    NewBlockCipher,
+};
 
 /// A struct that fullfills all of the trait bounds for serialization and deserializtion, but is not
 /// actually capable of performing any of the operations
