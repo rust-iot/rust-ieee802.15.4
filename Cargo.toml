@@ -21,9 +21,19 @@ travis-ci   = { repository = "braun-robotics/ieee802154" }
 hash32        = "0.2.1"
 hash32-derive = "0.1"
 byte = "0.2.4"
-cipher = { version = "0.2", default-features = false }
-ccm = {version = "0.3.0", default-features = false}
+
+[dependencies.ccm]
+version          = "0.3.0"
+default-features = false
+
+[dependencies.cipher]
+version          = "0.2"
+default-features = false
+
 
 [dev-dependencies]
-aes-soft = {version = "0.6.4", default-features = false}
 rand = "0.8.3"
+
+[dev-dependencies.aes-soft]
+version          = "0.6.4"
+default-features = false
