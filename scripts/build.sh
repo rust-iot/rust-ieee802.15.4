@@ -3,4 +3,5 @@ set -e
 
 export RUSTFLAGS="-D warnings"
 
+cargo fmt -- --check
 cargo test --verbose
