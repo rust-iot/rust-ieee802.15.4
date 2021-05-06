@@ -23,17 +23,17 @@ hash32-derive = "0.1"
 byte = "0.2.4"
 
 [dependencies.ccm]
-version          = "0.3.0"
+version          = "0.4.0"
 default-features = false
 
 [dependencies.cipher]
-version          = "0.2"
+version          = "0.3.0"
 default-features = false
 
 
 [dev-dependencies]
 rand = "0.8.3"
 
-[dev-dependencies.aes-soft]
-version          = "0.6.4"
+[dev-dependencies.aes]
+version          = "0.7.0"
 default-features = false
