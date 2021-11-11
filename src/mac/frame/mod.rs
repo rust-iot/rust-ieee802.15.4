@@ -436,7 +436,9 @@ impl TryRead<'_, &Header> for FrameContent {
                 FrameType::Beacon => FrameContent::Beacon(bytes.read(offset)?),
                 FrameType::Data => FrameContent::Data,
                 FrameType::Acknowledgement => FrameContent::Acknowledgement,
-                FrameType::MacCommand => FrameContent::Command(bytes.read(offset)?),
+                FrameType::MacCommand => {
+                    FrameContent::Command(bytes.read(offset)?)
+                }
                 FrameType::Multipurpose => FrameContent::Multipurpose,
                 FrameType::FragOrFragAck => FrameContent::FragOrFragAck,
                 FrameType::Extended => FrameContent::Extended,

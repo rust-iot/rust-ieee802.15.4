@@ -166,7 +166,7 @@ pub mod offset {
     pub const ACK: u16 = 5;
     pub const PAN_ID_COMPRESS: u16 = 6;
     pub const SEQ_NO_SUPPRESS: u16 = 8;
-    pub const IE_PRESENT:      u16 = 9;
+    pub const IE_PRESENT: u16 = 9;
     pub const DEST_ADDR_MODE: u16 = 10;
     pub const VERSION: u16 = 12;
     pub const SRC_ADDR_MODE: u16 = 14u16;

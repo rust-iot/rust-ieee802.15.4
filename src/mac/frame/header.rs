@@ -129,10 +129,13 @@ impl TryRead<'_> for Header {
         let pan_id_compress =
             ((bits & mask::PAN_ID_COMPRESS) >> offset::PAN_ID_COMPRESS) as u8;
 
-        let seq_no_suppress = ((bits & mask::SEQ_NO_SUPPRESS) >> offset::SEQ_NO_SUPPRESS) as u8;
-        let ie_present = ((bits & mask::IE_PRESENT) >> offset::IE_PRESENT) as u8;
+        let seq_no_suppress =
+            ((bits & mask::SEQ_NO_SUPPRESS) >> offset::SEQ_NO_SUPPRESS) as u8;
+        let ie_present =
+            ((bits & mask::IE_PRESENT) >> offset::IE_PRESENT) as u8;
 
-        let dest_addr_mode = ((bits & mask::DEST_ADDR_MODE) >> offset::DEST_ADDR_MODE) as u8;
+        let dest_addr_mode =
+            ((bits & mask::DEST_ADDR_MODE) >> offset::DEST_ADDR_MODE) as u8;
 
         let version = ((bits & mask::VERSION) >> offset::VERSION) as u8;
         let src_addr_mode =
