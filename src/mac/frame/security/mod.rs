@@ -109,6 +109,8 @@
 //!     let payload = &[0u8, 1u8, 2u8, 3u8, 4u8];
 //!     let frame_to_secure = Frame {
 //!         header: Header {
+//!             ie_present: false,
+//!             seq_no_suppress: false,
 //!             frame_type: FrameType::Data,
 //!             frame_pending: false,
 //!             ack_request: false,
@@ -797,6 +799,8 @@ mod tests {
     ) -> Frame<'a> {
         Frame {
             header: Header {
+                ie_present: false,
+                seq_no_suppress: false,
                 frame_type: FrameType::Data,
                 frame_pending: false,
                 ack_request: false,

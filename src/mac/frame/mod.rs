@@ -114,6 +114,8 @@ use self::security::{
 ///
 /// let frame = Frame {
 ///     header: Header {
+///         ie_present:      false,
+///         seq_no_suppress: false,
 ///         frame_type:      FrameType::Data,
 ///         frame_pending:   false,
 ///         ack_request:     false,
@@ -606,6 +608,8 @@ mod tests {
     fn encode_ver0_short() {
         let frame = Frame {
             header: Header {
+                ie_present: false,
+                seq_no_suppress: false,
                 frame_type: FrameType::Data,
                 frame_pending: false,
                 ack_request: false,
@@ -639,6 +643,8 @@ mod tests {
     fn encode_ver1_extended() {
         let frame = Frame {
             header: Header {
+                ie_present: false,
+                seq_no_suppress: false,
                 frame_type: FrameType::Beacon,
                 frame_pending: true,
                 ack_request: false,
@@ -689,6 +695,8 @@ mod tests {
     fn encode_ver0_pan_compress() {
         let frame = Frame {
             header: Header {
+                ie_present: false,
+                seq_no_suppress: false,
                 frame_type: FrameType::Acknowledgement,
                 frame_pending: false,
                 ack_request: false,
@@ -728,6 +736,8 @@ mod tests {
     fn encode_ver2_none() {
         let frame = Frame {
             header: Header {
+                ie_present: false,
+                seq_no_suppress: false,
                 frame_type: FrameType::MacCommand,
                 frame_pending: false,
                 ack_request: true,
