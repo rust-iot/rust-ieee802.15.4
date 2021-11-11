@@ -62,8 +62,10 @@ impl From<u8> for CapabilityInformation {
         let full_function_device = byte & CAP_FFD == CAP_FFD;
         let mains_power = byte & CAP_MAINS_POWER == CAP_MAINS_POWER;
         let idle_receive = byte & CAP_IDLE_RECEIVE == CAP_IDLE_RECEIVE;
-        let frame_protection = byte & CAP_FRAME_PROTECTION == CAP_FRAME_PROTECTION;
-        let allocate_address = byte & CAP_ALLOCATE_ADDRESS == CAP_ALLOCATE_ADDRESS;
+        let frame_protection =
+            byte & CAP_FRAME_PROTECTION == CAP_FRAME_PROTECTION;
+        let allocate_address =
+            byte & CAP_ALLOCATE_ADDRESS == CAP_ALLOCATE_ADDRESS;
         Self {
             full_function_device,
             mains_power,
@@ -253,19 +255,26 @@ impl TryWrite for Command {
                 bytes.write(offset, u8::from(capability))?;
             }
             Command::AssociationResponse(address, status) => {
-                bytes.write(offset, u8::from(CommandId::AssociationResponse))?;
+                bytes
+                    .write(offset, u8::from(CommandId::AssociationResponse))?;
                 bytes.write(offset, address)?;
                 bytes.write(offset, u8::from(status))?;
             }
             Command::DisassociationNotification(reason) => {
-                bytes.write(offset, u8::from(CommandId::DisassociationNotification))?;
+                bytes.write(
+                    offset,
+                    u8::from(CommandId::DisassociationNotification),
+                )?;
                 bytes.write(offset, u8::from(reason))?;
             }
             Command::DataRequest => {
                 bytes.write(offset, u8::from(CommandId::DataRequest))?;
             }
             Command::PanIdConflictNotification => {
-                bytes.write(offset, u8::from(CommandId::PanIdConflictNotification))?;
+                bytes.write(
+                    offset,
+                    u8::from(CommandId::PanIdConflictNotification),
+                )?;
             }
             Command::OrphanNotification => {
                 bytes.write(offset, u8::from(CommandId::OrphanNotification))?;
@@ -274,11 +283,17 @@ impl TryWrite for Command {
                 bytes.write(offset, u8::from(CommandId::BeaconRequest))?;
             }
             Command::CoordinatorRealignment(data) => {
-                bytes.write(offset, u8::from(CommandId::CoordinatorRealignment))?;
+                bytes.write(
+                    offset,
+                    u8::from(CommandId::CoordinatorRealignment),
+                )?;
                 bytes.write(offset, data)?;
             }
             Command::GuaranteedTimeSlotRequest(characteristics) => {
-                bytes.write(offset, u8::from(CommandId::GuaranteedTimeSlotRequest))?;
+                bytes.write(
+                    offset,
+                    u8::from(CommandId::GuaranteedTimeSlotRequest),
+                )?;
                 bytes.write(offset, u8::from(characteristics))?;
             }
         }
@@ -289,27 +304,33 @@ impl TryWrite for Command {
 impl TryRead<'_> for Command {
     fn try_read(bytes: &[u8], _ctx: ()) -> byte::Result<(Self, usize)> {
         let offset = &mut 0;
-        let cmd =
-            CommandId::optional_from(bytes.read::<u8>(offset)?).ok_or(DecodeError::InvalidValue)?;
+        let cmd = CommandId::optional_from(bytes.read::<u8>(offset)?)
+            .ok_or(DecodeError::InvalidValue)?;
         Ok((
             match cmd {
                 CommandId::AssociationRequest => {
-                    let capability = CapabilityInformation::from(bytes.read::<u8>(offset)?);
+                    let capability =
+                        CapabilityInformation::from(bytes.read::<u8>(offset)?);
                     Command::AssociationRequest(capability)
                 }
                 CommandId::AssociationResponse => {
                     let address: ShortAddress = bytes.read(offset)?;
-                    let status = AssociationStatus::optional_from(bytes.read(offset)?)
-                        .ok_or(DecodeError::InvalidValue)?;
+                    let status =
+                        AssociationStatus::optional_from(bytes.read(offset)?)
+                            .ok_or(DecodeError::InvalidValue)?;
                     Command::AssociationResponse(address, status)
                 }
                 CommandId::DisassociationNotification => {
-                    let reason = DisassociationReason::optional_from(bytes.read(offset)?)
-                        .ok_or(DecodeError::InvalidValue)?;
+                    let reason = DisassociationReason::optional_from(
+                        bytes.read(offset)?,
+                    )
+                    .ok_or(DecodeError::InvalidValue)?;
                     Command::DisassociationNotification(reason)
                 }
                 CommandId::DataRequest => Command::DataRequest,
-                CommandId::PanIdConflictNotification => Command::PanIdConflictNotification,
+                CommandId::PanIdConflictNotification => {
+                    Command::PanIdConflictNotification
+                }
                 CommandId::OrphanNotification => Command::OrphanNotification,
                 CommandId::BeaconRequest => Command::BeaconRequest,
                 CommandId::CoordinatorRealignment => {
@@ -317,7 +338,9 @@ impl TryRead<'_> for Command {
                 }
                 CommandId::GuaranteedTimeSlotRequest => {
                     let characteristics =
-                        GuaranteedTimeSlotCharacteristics::from(bytes.read::<u8>(offset)?);
+                        GuaranteedTimeSlotCharacteristics::from(
+                            bytes.read::<u8>(offset)?,
+                        );
                     Command::GuaranteedTimeSlotRequest(characteristics)
                 }
             },
@@ -438,7 +461,10 @@ mod tests {
         assert_eq!(len, data.len());
         assert_eq!(
             command,
-            Command::AssociationResponse(ShortAddress(0x7740), AssociationStatus::Successful)
+            Command::AssociationResponse(
+                ShortAddress(0x7740),
+                AssociationStatus::Successful
+            )
         );
 
         let data = [0x02, 0xaa, 0x55, 0x01];
@@ -459,7 +485,10 @@ mod tests {
         assert_eq!(len, data.len());
         assert_eq!(
             command,
-            Command::AssociationResponse(ShortAddress(0x0000), AssociationStatus::AccessDenied)
+            Command::AssociationResponse(
+                ShortAddress(0x0000),
+                AssociationStatus::AccessDenied
+            )
         );
 
         let data = [0x02, 0x00, 0x00, 0x03];
@@ -502,8 +531,10 @@ mod tests {
     #[test]
     fn encode_association_response() {
         let mut data = [0u8; 4];
-        let command =
-            Command::AssociationResponse(ShortAddress(0x55aa), AssociationStatus::Successful);
+        let command = Command::AssociationResponse(
+            ShortAddress(0x55aa),
+            AssociationStatus::Successful,
+        );
         let mut len = 0usize;
         data.write(&mut len, command).unwrap();
 
@@ -520,8 +551,10 @@ mod tests {
         assert_eq!(len, data.len());
         assert_eq!(data[..len], [0x02, 0x34, 0x12, 0x01]);
 
-        let command =
-            Command::AssociationResponse(ShortAddress(0xcffe), AssociationStatus::AccessDenied);
+        let command = Command::AssociationResponse(
+            ShortAddress(0xcffe),
+            AssociationStatus::AccessDenied,
+        );
         let mut len = 0usize;
         data.write(&mut len, command).unwrap();
 
@@ -557,7 +590,9 @@ mod tests {
         assert_eq!(len, data.len());
         assert_eq!(
             command,
-            Command::DisassociationNotification(DisassociationReason::CoordinatorLeave)
+            Command::DisassociationNotification(
+                DisassociationReason::CoordinatorLeave
+            )
         );
 
         let data = [0x03, 0x02];
@@ -566,7 +601,9 @@ mod tests {
         assert_eq!(len, data.len());
         assert_eq!(
             command,
-            Command::DisassociationNotification(DisassociationReason::DeviceLeave)
+            Command::DisassociationNotification(
+                DisassociationReason::DeviceLeave
+            )
         );
 
         let data = [0x03, 0x00];
@@ -582,14 +619,18 @@ mod tests {
     fn encode_disassociation_notification() {
         let mut data = [0u8; 32];
 
-        let command = Command::DisassociationNotification(DisassociationReason::CoordinatorLeave);
+        let command = Command::DisassociationNotification(
+            DisassociationReason::CoordinatorLeave,
+        );
         let mut len = 0usize;
         data.write(&mut len, command).unwrap();
 
         assert_eq!(len, 2);
         assert_eq!(data[..len], [0x03, 0x01]);
 
-        let command = Command::DisassociationNotification(DisassociationReason::DeviceLeave);
+        let command = Command::DisassociationNotification(
+            DisassociationReason::DeviceLeave,
+        );
         let mut len = 0usize;
         data.write(&mut len, command).unwrap();
 
@@ -634,13 +675,14 @@ mod tests {
     fn encode_coordinator_realignment() {
         let mut data = [0u8; 32];
 
-        let command = Command::CoordinatorRealignment(CoordinatorRealignmentData {
-            pan_id: PanId(0x1123),
-            coordinator_address: ShortAddress(0x0001),
-            channel: 15,
-            device_address: ShortAddress(0x1234),
-            channel_page: None,
-        });
+        let command =
+            Command::CoordinatorRealignment(CoordinatorRealignmentData {
+                pan_id: PanId(0x1123),
+                coordinator_address: ShortAddress(0x0001),
+                channel: 15,
+                device_address: ShortAddress(0x1234),
+                channel_page: None,
+            });
         let mut len = 0usize;
         data.write(&mut len, command).unwrap();
 
@@ -650,13 +692,14 @@ mod tests {
             [0x08, 0x23, 0x11, 0x01, 0x00, 0x0f, 0x34, 0x12]
         );
 
-        let command = Command::CoordinatorRealignment(CoordinatorRealignmentData {
-            pan_id: PanId(0xbeef),
-            coordinator_address: ShortAddress(0xfeed),
-            channel: 26,
-            device_address: ShortAddress(0x1234),
-            channel_page: Some(15),
-        });
+        let command =
+            Command::CoordinatorRealignment(CoordinatorRealignmentData {
+                pan_id: PanId(0xbeef),
+                coordinator_address: ShortAddress(0xfeed),
+                channel: 26,
+                device_address: ShortAddress(0x1234),
+                channel_page: Some(15),
+            });
         let mut len = 0usize;
         data.write(&mut len, command).unwrap();
 
@@ -675,11 +718,13 @@ mod tests {
         assert_eq!(len, data.len());
         assert_eq!(
             command,
-            Command::GuaranteedTimeSlotRequest(GuaranteedTimeSlotCharacteristics {
-                count: 1,
-                receive_only: false,
-                allocation: false,
-            })
+            Command::GuaranteedTimeSlotRequest(
+                GuaranteedTimeSlotCharacteristics {
+                    count: 1,
+                    receive_only: false,
+                    allocation: false,
+                }
+            )
         );
 
         let data = [0x09, 0x12];
@@ -688,11 +733,13 @@ mod tests {
         assert_eq!(len, data.len());
         assert_eq!(
             command,
-            Command::GuaranteedTimeSlotRequest(GuaranteedTimeSlotCharacteristics {
-                count: 2,
-                receive_only: true,
-                allocation: false,
-            })
+            Command::GuaranteedTimeSlotRequest(
+                GuaranteedTimeSlotCharacteristics {
+                    count: 2,
+                    receive_only: true,
+                    allocation: false,
+                }
+            )
         );
 
         let data = [0x09, 0x23];
@@ -701,11 +748,13 @@ mod tests {
         assert_eq!(len, data.len());
         assert_eq!(
             command,
-            Command::GuaranteedTimeSlotRequest(GuaranteedTimeSlotCharacteristics {
-                count: 3,
-                receive_only: false,
-                allocation: true,
-            })
+            Command::GuaranteedTimeSlotRequest(
+                GuaranteedTimeSlotCharacteristics {
+                    count: 3,
+                    receive_only: false,
+                    allocation: true,
+                }
+            )
         );
     }
 
@@ -713,11 +762,13 @@ mod tests {
     fn encode_guaranteed_time_slot_request() {
         let mut data = [0u8; 32];
 
-        let command = Command::GuaranteedTimeSlotRequest(GuaranteedTimeSlotCharacteristics {
-            count: 1,
-            receive_only: false,
-            allocation: false,
-        });
+        let command = Command::GuaranteedTimeSlotRequest(
+            GuaranteedTimeSlotCharacteristics {
+                count: 1,
+                receive_only: false,
+                allocation: false,
+            },
+        );
         let mut len = 0usize;
         data.write(&mut len, command).unwrap();
 
@@ -725,22 +776,26 @@ mod tests {
 
         assert_eq!(data[..len], [0x09, 0x01]);
 
-        let command = Command::GuaranteedTimeSlotRequest(GuaranteedTimeSlotCharacteristics {
-            count: 15,
-            receive_only: true,
-            allocation: false,
-        });
+        let command = Command::GuaranteedTimeSlotRequest(
+            GuaranteedTimeSlotCharacteristics {
+                count: 15,
+                receive_only: true,
+                allocation: false,
+            },
+        );
         let mut len = 0usize;
         data.write(&mut len, command).unwrap();
 
         assert_eq!(len, 2);
         assert_eq!(data[..len], [0x09, 0x1f]);
 
-        let command = Command::GuaranteedTimeSlotRequest(GuaranteedTimeSlotCharacteristics {
-            count: 15,
-            receive_only: false,
-            allocation: true,
-        });
+        let command = Command::GuaranteedTimeSlotRequest(
+            GuaranteedTimeSlotCharacteristics {
+                count: 15,
+                receive_only: false,
+                allocation: true,
+            },
+        );
         let mut len = 0usize;
         data.write(&mut len, command).unwrap();
 

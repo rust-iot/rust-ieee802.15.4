@@ -108,9 +108,11 @@ impl TryRead<'_> for SuperframeSpecification {
         let superframe_order = SuperframeOrder::from((byte >> 4) & 0x0f);
         let byte: u8 = bytes.read(offset)?;
         let final_cap_slot = byte & 0x0f;
-        let battery_life_extension = (byte & BATTERY_LIFE_EXTENSION) == BATTERY_LIFE_EXTENSION;
+        let battery_life_extension =
+            (byte & BATTERY_LIFE_EXTENSION) == BATTERY_LIFE_EXTENSION;
         let pan_coordinator = (byte & PAN_COORDINATOR) == PAN_COORDINATOR;
-        let association_permit = (byte & ASSOCIATION_PERMIT) == ASSOCIATION_PERMIT;
+        let association_permit =
+            (byte & ASSOCIATION_PERMIT) == ASSOCIATION_PERMIT;
         Ok((
             Self {
                 beacon_order,
@@ -306,7 +308,8 @@ impl TryRead<'_> for GuaranteedTimeSlotInformation {
             check_len(&bytes[*offset..], 2 + (3 * slot_count))?;
             let mut direction_mask: u8 = bytes.read(offset)?;
             for n in 0..slot_count {
-                let mut slot: GuaranteedTimeSlotDescriptor = bytes.read(offset)?;
+                let mut slot: GuaranteedTimeSlotDescriptor =
+                    bytes.read(offset)?;
                 let direction = if direction_mask & 0b1 == 0b1 {
                     Direction::Transmit
                 } else {
@@ -418,7 +421,8 @@ impl TryWrite for PendingAddress {
         let sl = self.short_address_count;
         let el = self.extended_address_count;
 
-        let it_s_magic = (((el as u8) << 4) & EXTENDED_MASK) | ((sl as u8) & SHORT_MASK); //FIXME give variable meaningful name
+        let it_s_magic =
+            (((el as u8) << 4) & EXTENDED_MASK) | ((sl as u8) & SHORT_MASK); //FIXME give variable meaningful name
         bytes.write(offset, it_s_magic)?;
 
         for n in 0..self.short_address_count {
@@ -568,8 +572,9 @@ mod tests {
         assert_eq!(beacon.pending_address.extended_addresses().len(), 0);
 
         let data = &[
-            0x12, 0xc3, 0x82, 0x02, 0x34, 0x12, 0x11, 0x78, 0x56, 0x14, 0x12, 0x34, 0x12, 0x78,
-            0x56, 0xef, 0xcd, 0xab, 0x89, 0x67, 0x45, 0x23, 0x01,
+            0x12, 0xc3, 0x82, 0x02, 0x34, 0x12, 0x11, 0x78, 0x56, 0x14, 0x12,
+            0x34, 0x12, 0x78, 0x56, 0xef, 0xcd, 0xab, 0x89, 0x67, 0x45, 0x23,
+            0x01,
         ][..];
         let mut len = 0usize;
         let beacon: Beacon = data.read(&mut len).unwrap();
@@ -666,8 +671,8 @@ mod tests {
         assert_eq!(
             buffer[..len],
             [
-                0xff, 0xc0, 0x81, 0x01, 0x34, 0x12, 0x11, 0x11, 0x56, 0x78, 0x60, 0xe2, 0x16, 0x21,
-                0x1c, 0x4a, 0xc2, 0xae
+                0xff, 0xc0, 0x81, 0x01, 0x34, 0x12, 0x11, 0x11, 0x56, 0x78,
+                0x60, 0xe2, 0x16, 0x21, 0x1c, 0x4a, 0xc2, 0xae
             ]
         );
     }

@@ -11,8 +11,8 @@ use ccm::aead::generic_array::{
     GenericArray,
 };
 use cipher::{
-    block::{Block, Key},
-    BlockCipher, NewBlockCipher,
+    Block, BlockCipher, BlockCipherKey, BlockDecrypt, BlockEncrypt,
+    NewBlockCipher,
 };
 
 /// A struct that fullfills all of the trait bounds for serialization and deserializtion, but is not
@@ -34,16 +34,20 @@ impl BlockCipher for Unimplemented {
     type BlockSize = U16;
 
     type ParBlocks = U1;
+}
 
+impl BlockEncrypt for Unimplemented {
     fn encrypt_block(&self, _block: &mut Block<Self>) {}
+}
 
+impl BlockDecrypt for Unimplemented {
     fn decrypt_block(&self, _block: &mut Block<Self>) {}
 }
 
 impl NewBlockCipher for Unimplemented {
     type KeySize = U16;
 
-    fn new(_key: &Key<Self>) -> Self {
+    fn new(_key: &BlockCipherKey<Self>) -> Self {
         Unimplemented {}
     }
 }

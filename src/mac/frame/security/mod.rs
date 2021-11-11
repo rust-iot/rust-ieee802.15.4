@@ -32,7 +32,7 @@
 //!     FooterMode,
 //! };
 //! use ccm::aead::generic_array::GenericArray;
-//! use aes_soft::Aes128;
+//! use aes::Aes128;
 //! use byte::TryWrite;
 //!
 //! /// Static key descriptor lookup struct that always returns
@@ -180,8 +180,13 @@ use ccm::{
 };
 use core::marker::PhantomData;
 
-pub use auxiliary_security_header::{AuxiliarySecurityHeader, KeyIdentifier, KeySource};
-pub use cipher::{generic_array::typenum::consts::U16, BlockCipher, NewBlockCipher};
+pub use auxiliary_security_header::{
+    AuxiliarySecurityHeader, KeyIdentifier, KeySource,
+};
+pub use cipher::{
+    generic_array::typenum::consts::U16, BlockCipher, BlockEncrypt,
+    NewBlockCipher,
+};
 pub use security_control::{KeyIdentifierMode, SecurityControl, SecurityLevel};
 
 /// The addressing mode to use during descriptor lookups
@@ -292,7 +297,11 @@ impl SecurityContext<Unimplemented, Unimplemented> {
     }
 }
 
-fn calculate_nonce(source_addr: u64, frame_counter: u32, sec_level: SecurityLevel) -> [u8; 13] {
+fn calculate_nonce(
+    source_addr: u64,
+    frame_counter: u32,
+    sec_level: SecurityLevel,
+) -> [u8; 13] {
     let mut output = [0u8; 13];
     for i in 0..8 {
         output[i] = (source_addr >> (8 * i) & 0xFF) as u8;
@@ -324,7 +333,7 @@ pub(crate) fn secure_frame<'a, AEADBLKCIPH, KEYDESCLO>(
     buffer: &mut [u8],
 ) -> Result<usize, SecurityError>
 where
-    AEADBLKCIPH: NewBlockCipher + BlockCipher<BlockSize = U16>,
+    AEADBLKCIPH: NewBlockCipher + BlockCipher<BlockSize = U16> + BlockEncrypt,
     KEYDESCLO: KeyDescriptorLookup<AEADBLKCIPH::KeySize>,
 {
     match footer_mode {
@@ -353,12 +362,17 @@ where
 
         // Procedure 7.2.1
         if let Some(aux_sec_header) = header.auxiliary_security_header {
-            let auth_len = aux_sec_header.control.security_level.get_mic_octet_size();
+            let auth_len =
+                aux_sec_header.control.security_level.get_mic_octet_size();
             let aux_len = aux_sec_header.get_octet_size();
 
             // If frame size plus AuthLen plus AuxLen plus FCS is bigger than aMaxPHYPacketSize
             // 7.2.1b4
-            if !(frame.payload.len() + frame.header.get_octet_size() + aux_len + auth_len + 2
+            if !(frame.payload.len()
+                + frame.header.get_octet_size()
+                + aux_len
+                + auth_len
+                + 2
                 <= 127)
             {
                 return Err(SecurityError::FrameTooLong);
@@ -400,11 +414,14 @@ where
                 // sizes
                 macro_rules! do_secure {
                     ($tag_size:ty, $mic:pat, $encmic:pat) => {
-                        let aead = Ccm::<AEADBLKCIPH, $tag_size, CcmU13>::new(&key);
+                        let aead =
+                            Ccm::<AEADBLKCIPH, $tag_size, CcmU13>::new(&key);
 
                         let auth_enc_part = match footer_mode {
                             FooterMode::None => &mut buffer[..offset],
-                            FooterMode::Explicit => return Err(SecurityError::NotImplemented),
+                            FooterMode::Explicit => {
+                                return Err(SecurityError::NotImplemented)
+                            }
                         };
 
                         let tag = match sec_l {
@@ -424,7 +441,9 @@ where
                         };
 
                         if let Ok(tag) = tag {
-                            if let Err(e) = buffer.write(&mut offset, tag.as_slice()) {
+                            if let Err(e) =
+                                buffer.write(&mut offset, tag.as_slice())
+                            {
                                 return Err(SecurityError::WriteError(e));
                             }
                         } else {
@@ -440,13 +459,25 @@ where
                         return Err(SecurityError::NotImplemented);
                     }
                     SecurityLevel::MIC32 | SecurityLevel::ENCMIC32 => {
-                        do_secure!(U4, SecurityLevel::MIC32, SecurityLevel::ENCMIC32);
+                        do_secure!(
+                            U4,
+                            SecurityLevel::MIC32,
+                            SecurityLevel::ENCMIC32
+                        );
                     }
                     SecurityLevel::MIC64 | SecurityLevel::ENCMIC64 => {
-                        do_secure!(U8, SecurityLevel::MIC64, SecurityLevel::ENCMIC64);
+                        do_secure!(
+                            U8,
+                            SecurityLevel::MIC64,
+                            SecurityLevel::ENCMIC64
+                        );
                     }
                     SecurityLevel::MIC128 | SecurityLevel::ENCMIC128 => {
-                        do_secure!(CcmU16, SecurityLevel::MIC128, SecurityLevel::ENCMIC128);
+                        do_secure!(
+                            CcmU16,
+                            SecurityLevel::MIC128,
+                            SecurityLevel::ENCMIC128
+                        );
                     }
                     #[allow(unreachable_patterns)]
                     _ => {}
@@ -487,7 +518,7 @@ pub(crate) fn unsecure_frame<'a, AEADBLKCIPH, KEYDESCLO, DEVDESCLO>(
     dev_desc_lo: &mut DEVDESCLO,
 ) -> Result<usize, SecurityError>
 where
-    AEADBLKCIPH: NewBlockCipher + BlockCipher<BlockSize = U16>,
+    AEADBLKCIPH: NewBlockCipher + BlockCipher<BlockSize = U16> + BlockEncrypt,
     KEYDESCLO: KeyDescriptorLookup<AEADBLKCIPH::KeySize>,
     DEVDESCLO: DeviceDescriptorLookup,
 {
@@ -525,17 +556,21 @@ where
 
         let mut taglen = 0;
         // 7.2.3f
-        if let Some((source_u64_address, key)) = context.key_provider.lookup_key_descriptor(
-            AddressingMode::SrcAddrMode,
-            aux_sec_header.key_identifier,
-            header.source,
-        ) {
+        if let Some((source_u64_address, key)) =
+            context.key_provider.lookup_key_descriptor(
+                AddressingMode::SrcAddrMode,
+                aux_sec_header.key_identifier,
+                header.source,
+            )
+        {
             let source_addr = match header.source {
                 Some(address) => address,
                 None => return Err(SecurityError::NoSourceAddress),
             };
 
-            match dev_desc_lo.lookup_device(AddressingMode::SrcAddrMode, source_addr) {
+            match dev_desc_lo
+                .lookup_device(AddressingMode::SrcAddrMode, source_addr)
+            {
                 Some(device) => {
                     let frame_counter = &mut device.frame_counter;
                     // 7.2.3l, 7.2.3m
@@ -559,7 +594,10 @@ where
                     let sec_l = aux_sec_header.control.security_level;
                     macro_rules! do_unsecure {
                         ($tag_size:ty, $mic:pat, $encmic:pat) => {
-                            let aead = Ccm::<AEADBLKCIPH, $tag_size, CcmU13>::new(&key);
+                            let aead =
+                                Ccm::<AEADBLKCIPH, $tag_size, CcmU13>::new(
+                                    &key,
+                                );
                             taglen = sec_l.get_mic_octet_size() as usize;
                             // Copy the tag out of the aead slice
                             let buffer_len = data_and_tag.len();
@@ -568,7 +606,8 @@ where
                             )
                             .clone();
 
-                            let auth_enc_part = &mut data_and_tag[..buffer_len - taglen];
+                            let auth_enc_part =
+                                &mut data_and_tag[..buffer_len - taglen];
 
                             let verify = match sec_l {
                                 $mic => aead.decrypt_in_place_detached(
@@ -588,7 +627,8 @@ where
                                 }
                             };
                             if let Ok(_) = verify {
-                                *frame_counter = aux_sec_header.get_frame_counter() + 1;
+                                *frame_counter =
+                                    aux_sec_header.get_frame_counter() + 1;
                             } else {
                                 return Err(SecurityError::TransformationError);
                             }
@@ -601,13 +641,25 @@ where
                             return Err(SecurityError::NotImplemented);
                         }
                         SecurityLevel::MIC32 | SecurityLevel::ENCMIC32 => {
-                            do_unsecure!(U4, SecurityLevel::MIC32, SecurityLevel::ENCMIC32);
+                            do_unsecure!(
+                                U4,
+                                SecurityLevel::MIC32,
+                                SecurityLevel::ENCMIC32
+                            );
                         }
                         SecurityLevel::MIC64 | SecurityLevel::ENCMIC64 => {
-                            do_unsecure!(U8, SecurityLevel::MIC64, SecurityLevel::ENCMIC64);
+                            do_unsecure!(
+                                U8,
+                                SecurityLevel::MIC64,
+                                SecurityLevel::ENCMIC64
+                            );
                         }
                         SecurityLevel::MIC128 | SecurityLevel::ENCMIC128 => {
-                            do_unsecure!(U16, SecurityLevel::MIC128, SecurityLevel::ENCMIC128);
+                            do_unsecure!(
+                                U16,
+                                SecurityLevel::MIC128,
+                                SecurityLevel::ENCMIC128
+                            );
                         }
                         #[allow(unreachable_patterns)]
                         _ => {}
@@ -690,7 +742,9 @@ impl From<SecurityError> for byte::Error {
             SecurityError::UnavailableKey => byte::Error::BadInput {
                 err: "UnavailableKey",
             },
-            SecurityError::KeyFailure => byte::Error::BadInput { err: "KeyFailure" },
+            SecurityError::KeyFailure => {
+                byte::Error::BadInput { err: "KeyFailure" }
+            }
             SecurityError::NoSourceAddress => byte::Error::BadInput {
                 err: "NoSourceAddress",
             },
@@ -725,23 +779,22 @@ impl From<SecurityError> for byte::Error {
             SecurityError::UnavailableDevice => byte::Error::BadInput {
                 err: "UnavailableDevice",
             },
-            SecurityError::KeyLookupAddressTypeMismatch => byte::Error::BadInput {
-                err: "KeyLookupAddressTypeMismatch",
-            },
+            SecurityError::KeyLookupAddressTypeMismatch => {
+                byte::Error::BadInput {
+                    err: "KeyLookupAddressTypeMismatch",
+                }
+            }
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    extern crate aes_soft;
-    extern crate ccm;
-    extern crate rand;
     use crate::mac::frame::header::*;
     use crate::mac::frame::security::{security_control::*, *};
     use crate::mac::frame::*;
     use crate::mac::{frame::frame_control::*, FooterMode};
-    use aes_soft::Aes128;
+    use aes::Aes128;
     use rand::Rng;
 
     struct StaticKeyLookup();
@@ -754,7 +807,9 @@ mod tests {
             device_address: Option<Address>,
         ) -> Option<(u64, GenericArray<u8, U16>)> {
             let key = GenericArray::default();
-            if let Some(Address::Extended(_, ExtendedAddress(u64_id))) = device_address {
+            if let Some(Address::Extended(_, ExtendedAddress(u64_id))) =
+                device_address
+            {
                 Some((u64_id, key))
             } else {
                 None
@@ -821,7 +876,8 @@ mod tests {
         let src_u64: u64 = rand::thread_rng().gen();
         let dest_u64: u64 = rand::thread_rng().gen();
         let source = Address::Extended(PanId(0x111), ExtendedAddress(src_u64));
-        let destination = Address::Extended(PanId(0x2222), ExtendedAddress(dest_u64));
+        let destination =
+            Address::Extended(PanId(0x2222), ExtendedAddress(dest_u64));
         (src_u64, source, destination)
     }
 
@@ -909,7 +965,12 @@ mod tests {
 
         let mut buf = [0u8; 127];
         let mut sec_ctx = aes_sec_ctx(source_euid, FRAME_CTR);
-        let write_res = security::secure_frame(frame, &mut sec_ctx, FooterMode::None, &mut buf);
+        let write_res = security::secure_frame(
+            frame,
+            &mut sec_ctx,
+            FooterMode::None,
+            &mut buf,
+        );
         match write_res {
             Ok(_) => {}
             Err(e) => match e {
@@ -1014,9 +1075,9 @@ mod tests {
         assert_eq!(
             &buf[..len],
             &[
-                9, 236, 127, 34, 34, 9, 0, 0, 0, 0, 0, 0, 0, 17, 1, 8, 0, 0, 0, 0, 0, 0, 0, 29, 3,
-                3, 3, 3, 171, 171, 171, 171, 171, 171, 171, 171, 48, 125, 232, 44, 201, 215, 168,
-                157, 77, 13, 6
+                9, 236, 127, 34, 34, 9, 0, 0, 0, 0, 0, 0, 0, 17, 1, 8, 0, 0, 0,
+                0, 0, 0, 0, 29, 3, 3, 3, 3, 171, 171, 171, 171, 171, 171, 171,
+                171, 48, 125, 232, 44, 201, 215, 168, 157, 77, 13, 6
             ]
         );
 
@@ -1052,10 +1113,15 @@ mod tests {
                             assert_eq!(id, 0xABABABABABABABAB);
                         }
                         KeySource::Short(_) => {
-                            assert!(false, "Did not parse key identifier correctly")
+                            assert!(
+                                false,
+                                "Did not parse key identifier correctly"
+                            )
                         }
                     },
-                    None => assert!(false, "Did not parse key identifier correctly"),
+                    None => {
+                        assert!(false, "Did not parse key identifier correctly")
+                    }
                 }
             }
             None => assert!(false, "Did not parse key identifier correctly"),
@@ -1128,7 +1194,10 @@ mod tests {
             Err(e) => match e {
                 SecurityError::TransformationError => {}
                 _ => {
-                    assert!(false, "Got an error different from TransformationError");
+                    assert!(
+                        false,
+                        "Got an error different from TransformationError"
+                    );
                     // Panic to make the match-arm matcher happy
                     panic!();
                 }

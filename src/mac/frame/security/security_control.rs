@@ -35,8 +35,10 @@ impl TryRead<'_> for SecurityControl {
         let offset = &mut 0;
         let bits: u8 = bytes.read_with(offset, LE)?;
 
-        let security_level = (bits & mask::SECURITY_LEVEL) >> offset::SECURITY_LEVEL;
-        let key_id_mode = (bits & mask::KEY_IDENTIFIER_MODE) >> offset::KEY_IDENTIFIER_MODE;
+        let security_level =
+            (bits & mask::SECURITY_LEVEL) >> offset::SECURITY_LEVEL;
+        let key_id_mode =
+            (bits & mask::KEY_IDENTIFIER_MODE) >> offset::KEY_IDENTIFIER_MODE;
 
         let security_level = SecurityLevel::from_bits(security_level)
             .ok_or(DecodeError::InvalidSecurityLevel(security_level))?;

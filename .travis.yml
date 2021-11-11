@@ -5,5 +5,8 @@ rust:
   - beta
   - stable
 
+before_install:
+  - rustup component add rustfmt
+
 script:
   - ./scripts/build.sh
