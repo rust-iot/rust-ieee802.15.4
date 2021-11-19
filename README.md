@@ -1,4 +1,4 @@
-# Rust IEEE 802.15.4 [![crates.io](https://img.shields.io/crates/v/ieee802154.svg)](https://crates.io/crates/ieee802154) [![Documentation](https://docs.rs/ieee802154/badge.svg)](https://docs.rs/ieee802154) [![Build Status](https://travis-ci.com/braun-embedded/rust-ieee802.15.4.svg?branch=master)](https://travis-ci.com/braun-embedded/rust-ieee802.15.4)
+# Rust IEEE 802.15.4 [![crates.io](https://img.shields.io/crates/v/ieee802154.svg)](https://crates.io/crates/ieee802154) [![Documentation](https://docs.rs/ieee802154/badge.svg)](https://docs.rs/ieee802154) [![Build Status](https://github.com/rust-iot/rust-ieee802.15.4/actions/workflows/run-test.yml/badge.svg)](https://github.com/rust-iot/rust-ieee802.15.4/actions/workflows/run-test.yml)
 
 ## Introduction
 
