@@ -1,23 +1,22 @@
 [package]
 name    = "ieee802154"
-version = "0.5.0"
-authors = ["Hanno Braun <hanno@braun-robotics.com>"]
+version = "0.5.1"
+authors = [
+  "Erik Henriksson <erikhenrikssn@gmail.com>",
+  "Hanno Braun <hanno@braun-robotics.com>",
+  "Ryan Kurte <ryan@kurte.nz>",
+]
 edition = "2018"
 
 description   = "Partial implementation of the IEEE 802.15.4 standard for low-rate wireless personal area networks"
 documentation = "https://docs.rs/ieee802154"
-repository    = "https://github.com/braun-robotics/rust-ieee802.15.4"
+repository    = "https://github.com/rust-iot/rust-ieee802.15.4"
 license       = "0BSD"
 readme        = "README.md"
 categories    = ["embedded", "network-programming", "no-std"]
 keywords      = ["WPAN"]
 
 [features]
-
-
-[badges]
-travis-ci   = { repository = "braun-robotics/ieee802154" }
-
 
 [dependencies]
 hash32        = "0.2.1"
