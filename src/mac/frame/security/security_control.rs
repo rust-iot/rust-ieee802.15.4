@@ -7,6 +7,7 @@ use byte::{BytesExt, TryRead, TryWrite, LE};
 ///
 /// Contains fields describing the security applied to the incoming frame
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct SecurityControl {
     /// The security level applied to the incoming frame
     pub(crate) security_level: SecurityLevel,
@@ -65,6 +66,7 @@ impl TryWrite for SecurityControl {
 
 /// The level of security applied to the payload
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum SecurityLevel {
     /// No encryption and no data authentication
     None = 0b000,
@@ -126,6 +128,7 @@ impl SecurityLevel {
 
 /// The key identifier mode
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum KeyIdentifierMode {
     /// No key identifier
     None = 0b00,

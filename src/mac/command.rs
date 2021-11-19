@@ -42,6 +42,7 @@ const CAP_ALLOCATE_ADDRESS: u8 = 0x80;
 ///
 /// Sent with association request to report the capabilities of the device.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CapabilityInformation {
     /// Full-function device (FFD) or a reduced-function device (RFD)
     /// RFD and FFD have different function sets.
@@ -125,6 +126,7 @@ extended_enum!(
 ///
 /// Changes to the PAN sent by the coordinator.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CoordinatorRealignmentData {
     /// PAN id that the coordinator will use
     pub pan_id: PanId,
@@ -185,6 +187,7 @@ const GTSC_ALLOCATION: u8 = 0x20;
 ///
 /// GTS configuration requested with the guaranteed time slot request command.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct GuaranteedTimeSlotCharacteristics {
     /// Number of slots requested
     pub count: u8,
@@ -221,6 +224,7 @@ impl From<GuaranteedTimeSlotCharacteristics> for u8 {
 
 /// MAC commands
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Command {
     /// Association request, request association to a PAN
     AssociationRequest(CapabilityInformation),

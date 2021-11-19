@@ -109,6 +109,8 @@
 //!     let payload = &[0u8, 1u8, 2u8, 3u8, 4u8];
 //!     let frame_to_secure = Frame {
 //!         header: Header {
+//!             ie_present: false,
+//!             seq_no_suppress: false,
 //!             frame_type: FrameType::Data,
 //!             frame_pending: false,
 //!             ack_request: false,
@@ -196,6 +198,7 @@ pub enum AddressingMode {
 }
 
 #[derive(Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 /// A partial device descriptor
 pub struct DeviceDescriptor {
     /// The frame counter associated with this device
@@ -851,6 +854,8 @@ mod tests {
     ) -> Frame<'a> {
         Frame {
             header: Header {
+                ie_present: false,
+                seq_no_suppress: false,
                 frame_type: FrameType::Data,
                 frame_pending: false,
                 ack_request: false,

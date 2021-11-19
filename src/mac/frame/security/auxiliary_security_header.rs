@@ -10,6 +10,7 @@ use cipher::{consts::U16, BlockCipher, NewBlockCipher};
 ///
 /// See: section 7.4
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct AuxiliarySecurityHeader {
     /// The control field in the Auxiliary Security Header
     pub control: SecurityControl,
@@ -154,6 +155,7 @@ where
 
 /// A key identifier
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct KeyIdentifier {
     /// The key source to be used for determining a key from this key identifier (if any)
     pub key_source: Option<KeySource>,
@@ -180,6 +182,7 @@ impl TryWrite for KeyIdentifier {
 
 /// A key source
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum KeySource {
     /// A key source that is 4 octets long
     Short(u32),
