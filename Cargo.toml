@@ -1,6 +1,6 @@
 [package]
 name    = "ieee802154"
-version = "0.5.1"
+version = "0.6.0"
 authors = [
   "Erik Henriksson <erikhenrikssn@gmail.com>",
   "Hanno Braun <hanno@braun-robotics.com>",

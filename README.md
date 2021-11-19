@@ -13,7 +13,7 @@ Partial [Rust] implementation of the [IEEE 802.15.4] standard, which defines the
 Use Cargo to add this library as a dependency to your project. Add the following to you `Cargo.toml`:
 ``` toml
 [dependencies]
-ieee802154 = "0.5"
+ieee802154 = "0.6"
 ```
 
 For more information, please refer to the [API Reference].
