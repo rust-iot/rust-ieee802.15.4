@@ -261,6 +261,12 @@ where
         // Write Sequence Number
         bytes.write(offset, self.seq)?;
 
+        if (self.destination.is_none() || self.source.is_none())
+            && self.pan_id_compress
+        {
+            return Err(EncodeError::DisallowedPanIdCompress)?;
+        }
+
         // Write addresses
         if let Some(destination) = self.destination {
             bytes.write_with(offset, destination, AddressEncoding::Normal)?;
