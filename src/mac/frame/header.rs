@@ -318,6 +318,7 @@ where
 /// let pan_id = PanId(0x0123);
 /// ```
 #[derive(Clone, Copy, Debug, Eq, Hash, Hash32, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct PanId(pub u16);
 
@@ -357,6 +358,8 @@ impl TryRead<'_> for PanId {
 /// ```
 #[derive(Clone, Copy, Debug, Eq, Hash, Hash32, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+
 pub struct ShortAddress(pub u16);
 
 impl ShortAddress {
@@ -397,6 +400,8 @@ impl TryRead<'_> for ShortAddress {
 /// ```
 #[derive(Clone, Copy, Debug, Eq, Hash, Hash32, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+
 pub struct ExtendedAddress(pub u64);
 
 impl ExtendedAddress {
@@ -427,6 +432,7 @@ impl TryRead<'_> for ExtendedAddress {
 /// An address that might contain an PAN ID and address
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Address {
     /// Short (16-bit) address and PAN ID (16-bit)
     Short(PanId, ShortAddress),

@@ -32,6 +32,12 @@ default-features = false
 version          = "0.3.0"
 default-features = false
 
+[dependencies.serde]
+version          = "1.0"
+default-features = false
+optional         = true
+features         = [ "derive" ]
+
 [dev-dependencies]
 rand = "0.8.3"
 

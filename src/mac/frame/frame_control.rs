@@ -107,6 +107,7 @@ impl FrameVersion {
 /// ```
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+
 pub enum AddressMode {
     /// PAN identifier and address field are not present
     None = 0b00,
