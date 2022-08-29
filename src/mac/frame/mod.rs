@@ -526,6 +526,9 @@ pub enum EncodeError {
     WriteError,
     /// Security is enabled but no security context is specified
     MissingSecurityCtx,
+    /// The `pan_id_compress` flag is set, but either the destination address
+    /// or source address is not present.
+    DisallowedPanIdCompress,
     /// Something went wrong, but it is unclear what/how it did
     UnknownError,
 }
@@ -538,6 +541,9 @@ impl From<EncodeError> for byte::Error {
             }
             EncodeError::MissingSecurityCtx => byte::Error::BadInput {
                 err: "MissingSecurityCtx",
+            },
+            EncodeError::DisallowedPanIdCompress => byte::Error::BadInput {
+                err: "DisallowedPanIdCompress",
             },
             EncodeError::UnknownError => byte::Error::BadInput {
                 err: "UnknownError",
@@ -801,5 +807,51 @@ mod tests {
             buf[..len],
             [0x23, 0xa0, 0xff, 0x34, 0x12, 0xbc, 0x9a, 0x04]
         );
+    }
+
+    #[test]
+    fn empty_addressing_and_panid_compress() {
+        let mut frame_data = [0u8; 127];
+        let mut offset = 0;
+
+        let mut header = Header {
+            frame_type: FrameType::Data,
+            version: FrameVersion::Ieee802154_2006,
+            frame_pending: false,
+            ack_request: false,
+            pan_id_compress: true,
+            destination: None,
+            source: Some(Address::Extended(
+                PanId(0xABCD),
+                ExtendedAddress(0xFF),
+            )),
+            seq: 1,
+            seq_no_suppress: false,
+            ie_present: false,
+            auxiliary_security_header: None,
+        };
+
+        assert!(frame_data
+            .write_with(
+                &mut offset,
+                header,
+                &Some(&mut SecurityContext::no_security()),
+            )
+            .is_err());
+
+        header.destination =
+            Some(Address::Extended(PanId(0xABCD), ExtendedAddress(0xFF)));
+        header.source = None;
+        header.source =
+            Some(Address::Extended(PanId(0xABCD), ExtendedAddress(0xFF)));
+        offset = 0;
+
+        assert!(frame_data
+            .write_with(
+                &mut offset,
+                header,
+                &Some(&mut SecurityContext::no_security()),
+            )
+            .is_ok());
     }
 }
