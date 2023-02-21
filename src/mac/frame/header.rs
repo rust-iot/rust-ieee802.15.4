@@ -6,7 +6,6 @@
 
 use byte::{check_len, BytesExt, TryRead, TryWrite, LE};
 use cipher::{consts::U16, BlockCipher, NewBlockCipher};
-use hash32_derive::Hash32;
 
 pub use super::frame_control::{AddressMode, FrameType, FrameVersion};
 use super::DecodeError;
@@ -312,7 +311,7 @@ where
 ///
 /// let pan_id = PanId(0x0123);
 /// ```
-#[derive(Clone, Copy, Debug, Eq, Hash, Hash32, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct PanId(pub u16);
@@ -351,7 +350,7 @@ impl TryRead<'_> for PanId {
 ///
 /// let short_address = ShortAddress(0x0123);
 /// ```
-#[derive(Clone, Copy, Debug, Eq, Hash, Hash32, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 
@@ -393,7 +392,7 @@ impl TryRead<'_> for ShortAddress {
 ///
 /// let ext_address = ExtendedAddress(0x0123456789abcdef);
 /// ```
-#[derive(Clone, Copy, Debug, Eq, Hash, Hash32, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 
