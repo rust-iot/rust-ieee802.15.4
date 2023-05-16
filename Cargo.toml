@@ -25,7 +25,7 @@ byte = "0.2.4"
 defmt = { version = ">=0.2.0,<0.4", optional = true }
 
 [dependencies.ccm]
-version          = "0.4.0"
+version          = "0.5.0"
 default-features = false
 
 [dependencies.cipher]
