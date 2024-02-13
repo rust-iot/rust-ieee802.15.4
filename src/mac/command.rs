@@ -80,19 +80,19 @@ impl From<CapabilityInformation> for u8 {
     fn from(ar: CapabilityInformation) -> Self {
         let mut byte = 0u8;
         if ar.full_function_device {
-            byte = byte | CAP_FFD;
+            byte |= CAP_FFD;
         }
         if ar.mains_power {
-            byte = byte | CAP_MAINS_POWER;
+            byte |= CAP_MAINS_POWER;
         }
         if ar.idle_receive {
-            byte = byte | CAP_IDLE_RECEIVE;
+            byte |= CAP_IDLE_RECEIVE;
         }
         if ar.frame_protection {
-            byte = byte | CAP_FRAME_PROTECTION;
+            byte |= CAP_FRAME_PROTECTION;
         }
         if ar.allocate_address {
-            byte = byte | CAP_ALLOCATE_ADDRESS;
+            byte |= CAP_ALLOCATE_ADDRESS;
         }
         byte
     }
@@ -157,7 +157,7 @@ impl TryWrite for CoordinatorRealignmentData {
 impl TryRead<'_> for CoordinatorRealignmentData {
     fn try_read(bytes: &[u8], _ctx: ()) -> byte::Result<(Self, usize)> {
         let offset = &mut 0;
-        check_len(&bytes, 7)?;
+        check_len(bytes, 7)?;
         let pan_id = bytes.read(offset)?;
         let coordinator_address = bytes.read(offset)?;
         let channel = bytes.read(offset)?;
@@ -213,10 +213,10 @@ impl From<GuaranteedTimeSlotCharacteristics> for u8 {
     fn from(gtsc: GuaranteedTimeSlotCharacteristics) -> Self {
         let mut byte = gtsc.count & 0x0f;
         if gtsc.receive_only {
-            byte = byte | GTSC_RECEIVE_ONLY;
+            byte |= GTSC_RECEIVE_ONLY;
         }
         if gtsc.allocation {
-            byte = byte | GTSC_ALLOCATION;
+            byte |= GTSC_ALLOCATION;
         }
         byte
     }

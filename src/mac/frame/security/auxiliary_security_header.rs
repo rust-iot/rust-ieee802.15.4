@@ -25,8 +25,7 @@ impl AuxiliarySecurityHeader {
     /// Get the size of this security header, in octets
     pub fn get_octet_size(&self) -> usize {
         // SecurityControl length + FrameCounter length
-        let length = 1
-            + 4
+        1 + 4
             + match self.key_identifier {
                 Some(key_id) => match key_id.key_source {
                     Some(source) => match source {
@@ -36,8 +35,7 @@ impl AuxiliarySecurityHeader {
                     None => 1,
                 },
                 None => 0,
-            };
-        length
+            }
     }
 
     /// Create a new Auxiliary Security Header with the specified control and key identifier
@@ -53,6 +51,8 @@ impl AuxiliarySecurityHeader {
     }
 
     /// Create a new Auxiliary Security Header with the specified control, key identifier, and frame counter.
+    ///
+    /// # Safety
     ///
     /// This function is unsafe because the frame_counter is almost always set when parsing a frame from a buffer,
     /// or by the security context at the time of actually writing a secured frame.
@@ -143,11 +143,8 @@ where
 
         bytes.write(offset, self.control)?;
         bytes.write(offset, sec_ctx.frame_counter)?;
-        match self.key_identifier {
-            Some(key_identifier) => {
-                bytes.write(offset, key_identifier)?;
-            }
-            _ => {}
+        if let Some(key_identifier) = self.key_identifier {
+            bytes.write(offset, key_identifier)?;
         }
         Ok(*offset)
     }
@@ -166,12 +163,11 @@ pub struct KeyIdentifier {
 impl TryWrite for KeyIdentifier {
     fn try_write(self, bytes: &mut [u8], _ctx: ()) -> byte::Result<usize> {
         let offset = &mut 0;
-        match self.key_source {
-            Some(source) => match source {
+        if let Some(source) = self.key_source {
+            match source {
                 KeySource::Short(src) => bytes.write(offset, src)?,
                 KeySource::Long(src) => bytes.write(offset, src)?,
-            },
-            _ => {}
+            }
         }
 
         bytes.write(offset, self.key_index)?;
