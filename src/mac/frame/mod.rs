@@ -345,7 +345,6 @@ impl<'a> TryRead<'a, FooterMode> for Frame<'a> {
         if header.has_security() {
             return Err(DecodeError::SecurityEnabled)?;
         }
-
         let (payload, footer) = match mode {
             FooterMode::None => (
                 bytes.read_with(offset, Bytes::Len(bytes.len() - *offset))?,
@@ -562,6 +561,24 @@ mod tests {
     };
 
     #[test]
+    fn decode_ver0_ack() {
+        let data = [0x02, 0x00, 0x04];
+
+        let frame: Frame = data.read_with(&mut 0, FooterMode::None).unwrap();
+        let hdr = frame.header;
+        assert_eq!(hdr.frame_type, FrameType::Acknowledgement);
+        assert_eq!(hdr.has_security(), false);
+        assert_eq!(hdr.frame_pending, false);
+        assert_eq!(hdr.ack_request, false);
+        assert_eq!(hdr.pan_id_compress, false);
+        assert_eq!(hdr.version, FrameVersion::Ieee802154_2003);
+        assert_eq!(frame.header.destination, None);
+        assert_eq!(frame.header.source, None);
+        assert_eq!(frame.header.seq, 4);
+        assert_eq!(frame.payload.len(), 0);
+    }
+
+    #[test]
     fn decode_ver0_pan_id_compression() {
         let data = [
             0x41, 0x88, 0x91, 0x8f, 0x20, 0xff, 0xff, 0x33, 0x44, 0x00, 0x00,
@@ -624,6 +641,7 @@ mod tests {
             ))
         );
         assert_eq!(frame.header.seq, 139);
+        assert_eq!(frame.payload.len(), 3);
     }
 
     #[test]
