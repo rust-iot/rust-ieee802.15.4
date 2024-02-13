@@ -19,7 +19,7 @@ keywords      = ["WPAN"]
 [features]
 
 [dependencies]
-hash32        = "0.2.1"
+hash32        = "0.3"
 hash32-derive = "0.1"
 byte = "0.2.7"
 defmt = { version = ">=0.2.0,<0.4", optional = true }
