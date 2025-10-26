@@ -38,6 +38,10 @@ default-features = false
 optional         = true
 features         = [ "derive" ]
 
+[dependencies.heapless]
+version          = "0.9.1"
+default-features = false
+
 [dev-dependencies]
 rand = "0.8.3"
 
