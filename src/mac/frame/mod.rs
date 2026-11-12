@@ -16,12 +16,14 @@ use crate::mac::command::Command;
 
 mod frame_control;
 pub mod header;
+pub mod ie;
 pub mod security;
 use byte::{ctx::Bytes, BytesExt, TryRead, TryWrite, LE};
 use ccm::aead::generic_array::typenum::consts::U16;
 use cipher::{BlockCipher, BlockEncrypt, NewBlockCipher};
-use header::FrameType;
 pub use header::Header;
+use header::{FrameType, FrameVersion};
+pub use ie::InformationElements;
 
 use self::security::{
     default::Unimplemented, DeviceDescriptorLookup, KeyDescriptorLookup,
@@ -109,6 +111,7 @@ use self::security::{
 ///   Header,
 ///   PanId,
 ///   FrameSerDesContext,
+///   InformationElements,
 /// };
 /// use byte::BytesExt;
 ///
@@ -127,6 +130,7 @@ use self::security::{
 ///         source:      Some(Address::Short(PanId(0x1234), ShortAddress(0x9abc))),
 ///         auxiliary_security_header: None,
 ///     },
+///     ies: InformationElements::EMPTY,
 ///     content: FrameContent::Data,
 ///     payload: &[0xde, 0xf0],
 ///     footer:  [0x12, 0x34]
@@ -156,6 +160,9 @@ use self::security::{
 pub struct Frame<'p> {
     /// Header
     pub header: Header,
+
+    /// Header IEs and Payload IEs, present when `header.ie_present` is set
+    pub ies: InformationElements<'p>,
 
     /// Content
     pub content: FrameContent,
@@ -231,6 +238,20 @@ where
         let offset = &mut 0;
 
         bytes.write_with(offset, self.header, &context.security_ctx)?;
+        if !self.ies.is_empty() {
+            if context.security_ctx.is_some() {
+                return Err(byte::Error::BadInput {
+                    err: "IEs with security are not supported",
+                });
+            }
+            // A legacy beacon's or a command's content is never empty.
+            let follows = matches!(
+                self.content,
+                FrameContent::Beacon(_) | FrameContent::Command(_)
+            ) || !self.payload.is_empty();
+            let ies_len = self.ies.write(&mut bytes[*offset..], follows)?;
+            *offset += ies_len;
+        }
         bytes.write(offset, self.content)?;
 
         let mut security_enabled = false;
@@ -290,6 +311,9 @@ impl<'a> Frame<'a> {
     {
         let offset = &mut 0;
         let header: Header = buf.read(offset)?;
+        if header.ie_present {
+            return Err(SecurityError::NotImplemented);
+        }
         let content = buf.read_with(offset, &header)?;
 
         let mut tag_size = 0;
@@ -318,6 +342,7 @@ impl<'a> Frame<'a> {
 
         let frame = Frame {
             header,
+            ies: InformationElements::EMPTY,
             content,
             payload,
             footer: [0, 0],
@@ -340,11 +365,26 @@ impl<'a> TryRead<'a, FooterMode> for Frame<'a> {
     ) -> byte::Result<(Self, usize)> {
         let offset = &mut 0;
         let header: Header = bytes.read(offset)?;
-        let content = bytes.read_with(offset, &header)?;
-
         if header.has_security() {
             return Err(DecodeError::SecurityEnabled)?;
         }
+        let footer_len = match mode {
+            FooterMode::None => 0,
+            FooterMode::Explicit => 2,
+        };
+        let ies = if header.ie_present {
+            let end = bytes
+                .len()
+                .checked_sub(footer_len)
+                .filter(|&end| end >= *offset)
+                .ok_or(byte::Error::Incomplete)?;
+            let (ies, len) = InformationElements::read(&bytes[*offset..end])?;
+            *offset += len;
+            ies
+        } else {
+            InformationElements::EMPTY
+        };
+        let content = bytes.read_with(offset, &header)?;
         let (payload, footer) = match mode {
             FooterMode::None => (
                 bytes.read_with(offset, Bytes::Len(bytes.len() - *offset))?,
@@ -359,6 +399,7 @@ impl<'a> TryRead<'a, FooterMode> for Frame<'a> {
 
         let frame = Frame {
             header,
+            ies,
             content,
             payload,
             footer: footer.to_le_bytes(),
@@ -399,6 +440,9 @@ impl Default for FooterMode {
 pub enum FrameContent {
     /// Beacon frame content
     Beacon(Beacon),
+    /// Enhanced Beacon frame content (frame version 0b10): none, the beacon's
+    /// fields are IEs (section 7.3.1)
+    EnhancedBeacon,
     /// Data frame
     Data,
     /// Acknowledgement frame
@@ -432,6 +476,11 @@ impl TryRead<'_, &Header> for FrameContent {
         let offset = &mut 0;
         Ok((
             match header.frame_type {
+                FrameType::Beacon
+                    if header.version == FrameVersion::Ieee802154 =>
+                {
+                    FrameContent::EnhancedBeacon
+                }
                 FrameType::Beacon => FrameContent::Beacon(bytes.read(offset)?),
                 FrameType::Data => FrameContent::Data,
                 FrameType::Acknowledgement => FrameContent::Acknowledgement,
@@ -666,6 +715,7 @@ mod tests {
                 seq: 0x01,
                 auxiliary_security_header: None,
             },
+            ies: InformationElements::EMPTY,
             content: FrameContent::Data,
             payload: &[0xde, 0xf0],
             footer: [0x00, 0x00],
@@ -710,6 +760,7 @@ mod tests {
                 seq: 0xff,
                 auxiliary_security_header: None,
             },
+            ies: InformationElements::EMPTY,
             content: FrameContent::Beacon(beacon::Beacon {
                 superframe_spec: beacon::SuperframeSpecification {
                     beacon_order: beacon::BeaconOrder::OnDemand,
@@ -767,6 +818,7 @@ mod tests {
                 seq: 0xff,
                 auxiliary_security_header: None,
             },
+            ies: InformationElements::EMPTY,
             content: FrameContent::Acknowledgement,
             payload: &[],
             footer: [0x00, 0x00],
@@ -808,6 +860,7 @@ mod tests {
                 seq: 0xff,
                 auxiliary_security_header: None,
             },
+            ies: InformationElements::EMPTY,
             content: FrameContent::Command(command::Command::DataRequest),
             payload: &[],
             footer: [0x00, 0x00],
@@ -871,5 +924,119 @@ mod tests {
                 &Some(&mut SecurityContext::no_security()),
             )
             .is_ok());
+    }
+
+    /// An Enhanced Beacon carrying a SUN Device Capabilities IE in an MLME IE
+    /// (802.15.4-2020 sections 7.3.1 and 7.4.4.10).
+    #[test]
+    fn enhanced_beacon_with_payload_ies() {
+        let caps = [0x40, 0x10, 0x00, 0x11, 0x30];
+        let mut nested = [0u8; 7];
+        nested
+            .write(
+                &mut 0,
+                ie::NestedIe::Short {
+                    sub_id: ie::sub_id::SUN_DEVICE_CAPABILITIES,
+                    content: &caps,
+                },
+            )
+            .unwrap();
+        let mut payload_ies = [0u8; 9];
+        payload_ies
+            .write(&mut 0, ie::PayloadIe::new(ie::group_id::MLME, &nested))
+            .unwrap();
+        let frame = Frame {
+            header: Header {
+                ie_present: true,
+                seq_no_suppress: false,
+                frame_type: FrameType::Beacon,
+                frame_pending: false,
+                ack_request: false,
+                pan_id_compress: false,
+                version: FrameVersion::Ieee802154,
+                seq: 7,
+                destination: None,
+                source: Some(Address::Extended(
+                    PanId(0x1234),
+                    ExtendedAddress(0x0200_0000_0000_0001),
+                )),
+                auxiliary_security_header: None,
+            },
+            ies: InformationElements::new(&[], &payload_ies),
+            content: FrameContent::EnhancedBeacon,
+            payload: &[],
+            footer: [0x00, 0x00],
+        };
+        let mut buf = [0u8; 64];
+        let len = &mut 0;
+        buf.write_with(
+            len,
+            frame,
+            &mut FrameSerDesContext::no_security(FooterMode::None),
+        )
+        .unwrap();
+        let len = *len;
+        // Beacon, IE Present, no destination, frame version 0b10, extended
+        // source: 0xe200.
+        assert_eq!(&buf[..3], &[0x00, 0xe2, 7]);
+        // The PAN ID and address, then Header Termination 1, then the MLME IE
+        // (length 7, group 1: 0x8807).
+        assert_eq!(&buf[13..17], &[0x00, 0x3f, 0x07, 0x88]);
+        assert_eq!(len, 13 + 2 + 9);
+        let back: Frame =
+            buf[..len].read_with(&mut 0, FooterMode::None).unwrap();
+        assert_eq!(back, frame);
+        let mlme = back.ies.payload().next().unwrap();
+        let nested = mlme.nested().next().unwrap();
+        let sun: ie::SunDeviceCapabilities =
+            nested.content().read(&mut 0).unwrap();
+        assert_eq!(sun.features, ie::SunDeviceCapabilities::MODE_SWITCH);
+        assert_eq!(sun.bands, 1 << 4);
+    }
+
+    /// A data frame with a Header IE and a payload: Header Termination 2
+    /// separates them, and the sequence number may be suppressed.
+    #[test]
+    fn header_ies_then_payload() {
+        let mut header_ies = [0u8; 4];
+        header_ies
+            .write(&mut 0, ie::HeaderIe::new(0x2a, &[1, 2]))
+            .unwrap();
+        let frame = Frame {
+            header: Header {
+                ie_present: true,
+                seq_no_suppress: true,
+                frame_type: FrameType::Data,
+                frame_pending: false,
+                ack_request: false,
+                pan_id_compress: false,
+                version: FrameVersion::Ieee802154,
+                seq: 0,
+                destination: Some(Address::Short(
+                    PanId(0x1234),
+                    ShortAddress(0xffff),
+                )),
+                source: None,
+                auxiliary_security_header: None,
+            },
+            ies: InformationElements::new(&header_ies, &[]),
+            content: FrameContent::Data,
+            payload: &[0xaa, 0xbb],
+            footer: [0x00, 0x00],
+        };
+        let mut buf = [0u8; 32];
+        let len = &mut 0;
+        buf.write_with(
+            len,
+            frame,
+            &mut FrameSerDesContext::no_security(FooterMode::None),
+        )
+        .unwrap();
+        let len = *len;
+        assert_eq!(frame.header.get_octet_size(), 6);
+        assert_eq!(&buf[6..len], &[0x02, 0x15, 1, 2, 0x80, 0x3f, 0xaa, 0xbb]);
+        let back: Frame =
+            buf[..len].read_with(&mut 0, FooterMode::None).unwrap();
+        assert_eq!(back, frame);
     }
 }

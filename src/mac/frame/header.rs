@@ -85,8 +85,8 @@ pub struct Header {
 impl Header {
     /// Get the size of this header in octets
     pub fn get_octet_size(&self) -> usize {
-        // Frame control + sequence number
-        let mut len = 3;
+        // Frame control + sequence number, unless suppressed
+        let mut len = if self.seq_no_suppress { 2 } else { 3 };
 
         for i in [self.destination, self.source].iter() {
             match i {
@@ -158,7 +158,13 @@ impl TryRead<'_> for Header {
 
         /* Decode header depending on Frame Control Fields */
 
-        let seq = bytes.read(offset)?;
+        // Frame version 0b10 may leave the sequence number out (section
+        // 7.2.2.5); it is read as 0.
+        let seq = if seq_no_suppress {
+            0
+        } else {
+            bytes.read(offset)?
+        };
 
         let destination = match dest_addr_mode {
             AddressMode::None => None,
@@ -252,14 +258,18 @@ where
             | (self.frame_pending as u16) << offset::PENDING
             | (self.ack_request as u16) << offset::ACK
             | (self.pan_id_compress as u16) << offset::PAN_ID_COMPRESS
+            | (self.seq_no_suppress as u16) << offset::SEQ_NO_SUPPRESS
+            | (self.ie_present as u16) << offset::IE_PRESENT
             | (dest_addr_mode as u16) << offset::DEST_ADDR_MODE
             | (self.version as u16) << offset::VERSION
             | (src_addr_mode as u16) << offset::SRC_ADDR_MODE;
 
         bytes.write_with(offset, frame_control_raw, LE)?;
 
-        // Write Sequence Number
-        bytes.write(offset, self.seq)?;
+        // Write Sequence Number, unless suppressed
+        if !self.seq_no_suppress {
+            bytes.write(offset, self.seq)?;
+        }
 
         if (self.destination.is_none() || self.source.is_none())
             && self.pan_id_compress
