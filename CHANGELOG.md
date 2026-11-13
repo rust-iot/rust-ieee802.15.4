@@ -1,3 +1,12 @@
+### Unreleased
+
+- Add Information Elements (802.15.4-2020 section 7.4): Header, Payload and
+  nested IEs with their termination IEs, read and written with `Frame` as
+  `Frame::ies`, and the SUN Device Capabilities and Vendor Specific IEs
+- Read Enhanced Beacons (frame version 0b10) as `FrameContent::EnhancedBeacon`
+- Write the IE Present and Sequence Number Suppression fields, and leave out a
+  suppressed sequence number
+
 ### v0.5.0 (2021-03-02)
 
 - Use `byte` crate instead of `bytes` for encoding/decoding ([#35])
