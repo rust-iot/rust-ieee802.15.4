@@ -1,3 +1,29 @@
+### Unreleased
+
+- Add Information Elements (802.15.4-2020 section 7.4): Header, Payload and
+  nested IEs with their termination IEs, read and written with `Frame` as
+  `Frame::ies`, and the SUN Device Capabilities and Vendor Specific IEs
+- Read Enhanced Beacons (frame version 0b10) as `FrameContent::EnhancedBeacon`
+- Write the IE Present and Sequence Number Suppression fields, and leave out a
+  suppressed sequence number
+
+Breaking changes:
+
+- `FrameContent` has a new variant, `EnhancedBeacon`, and is now
+  `#[non_exhaustive]`
+- Beacons of frame version 0b10 now read as `FrameContent::EnhancedBeacon`, not
+  `FrameContent::Beacon`
+- Writing a frame fails when `Header::ie_present` doesn't match whether
+  `Frame::ies` is empty
+- `Frame::try_read_and_unsecure` reads an unsecured frame's IEs, and refuses a
+  secured frame with IEs (`SecurityError::NotImplemented`)
+
+Known limitations:
+
+- Securing or unsecuring a frame with IEs isn't implemented
+- PAN ID Compression follows the 2006 rules (section 7.2.2.6) for every frame
+  version, not Table 7-2 for frame version 0b10
+
 ### v0.5.0 (2021-03-02)
 
 - Use `byte` crate instead of `bytes` for encoding/decoding ([#35])

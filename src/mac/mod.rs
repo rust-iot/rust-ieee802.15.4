@@ -9,5 +9,6 @@ pub use frame::header::{
     PanId, ShortAddress,
 };
 pub use frame::{
-    security, DecodeError, FooterMode, Frame, FrameContent, FrameSerDesContext,
+    ie, security, DecodeError, FooterMode, Frame, FrameContent,
+    FrameSerDesContext, InformationElements,
 };
