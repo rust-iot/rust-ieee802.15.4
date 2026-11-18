@@ -50,6 +50,11 @@ pub struct Header {
     /// Identifier field, and the Source PAN Identifier field shall be assumed equal to that of the destination. If this
     /// field is set to `false`, then the PAN Identifier field shall be present if and only if the corresponding address is
     /// present.
+    ///
+    /// These are the 2006 rules (section 7.2.2.6), applied to every frame
+    /// version: frame version 0b10's rules (Table 7-2) aren't implemented yet,
+    /// so, for example, an Enhanced Beacon with no destination, an extended
+    /// source and PAN ID Compression set doesn't parse.
     pub pan_id_compress: bool,
 
     /// Suppress sequence number

@@ -398,8 +398,9 @@ ie_iterator!(
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct SunDeviceCapabilities<'a> {
     /// The SUN Features field (Figure 7-63): [`SunDeviceCapabilities::MODE_SWITCH`]
-    /// and the others; its Extended Band Identifier bit is set from `bands`
-    /// when written
+    /// and the others. Its Extended Band Identifier bit sets the width of
+    /// `bands` and of the descriptors' band fields: write the descriptors
+    /// with the same bit
     pub features: u8,
     /// The Frequency Bands Supported bitmap, by band identifier (Tables 7-21
     /// and 7-22)
@@ -465,13 +466,15 @@ impl<'a> TryRead<'a> for SunDeviceCapabilities<'a> {
 impl TryWrite for SunDeviceCapabilities<'_> {
     fn try_write(self, bytes: &mut [u8], _ctx: ()) -> byte::Result<usize> {
         let offset = &mut 0;
-        let extended = self.bands > 0xffff;
-        let features = if extended {
-            self.features | Self::EXTENDED_BAND_IDENTIFIER
-        } else {
-            self.features & !Self::EXTENDED_BAND_IDENTIFIER
-        };
-        bytes.write(offset, features)?;
+        // The bit also sets the width of the descriptors' band fields, which
+        // are already encoded: keep it as given.
+        let extended = self.extended();
+        if !extended && self.bands > 0xffff {
+            return Err(byte::Error::BadInput {
+                err: "bands above 15 need the Extended Band Identifier",
+            });
+        }
+        bytes.write(offset, self.features)?;
         if extended {
             bytes.write_with(offset, self.bands, LE)?;
         } else {
@@ -695,6 +698,42 @@ mod tests {
         assert_eq!(it.next().unwrap().modes, 0x180);
         assert_eq!(it.next().unwrap().bands, Some(0x10));
         assert_eq!(it.next(), None);
+    }
+
+    /// The Extended Band Identifier is written as given: it sets the width
+    /// of the descriptors' band fields too.
+    #[test]
+    fn sun_device_capabilities_extended_bands() {
+        let mut d = [0u8; 8];
+        let o = &mut 0;
+        d.write_with(
+            o,
+            PhyTypeDescriptor {
+                phy_type: 1,
+                modes: 1 << 7,
+                bands: Some(1 << 4),
+            },
+            true,
+        )
+        .unwrap();
+        let caps = SunDeviceCapabilities {
+            features: SunDeviceCapabilities::EXTENDED_BAND_IDENTIFIER,
+            bands: 1 << 4,
+            descriptors: &d[..*o],
+        };
+        let mut buf = [0u8; 16];
+        let n = caps.try_write(&mut buf, ()).unwrap();
+        assert_eq!(&buf[..5], &[0x80, 0x10, 0x00, 0x00, 0x00]);
+        let (back, _) = SunDeviceCapabilities::try_read(&buf[..n], ()).unwrap();
+        assert_eq!(back, caps);
+        assert_eq!(back.descriptors().next().unwrap().bands, Some(1 << 4));
+        // Bands above 15 need the bit.
+        let wide = SunDeviceCapabilities {
+            features: 0,
+            bands: 1 << 16,
+            descriptors: &[],
+        };
+        assert!(wide.try_write(&mut buf, ()).is_err());
     }
 
     #[test]

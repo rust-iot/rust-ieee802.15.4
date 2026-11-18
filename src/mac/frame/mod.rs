@@ -237,13 +237,19 @@ where
         let mode = &context.footer_mode;
         let offset = &mut 0;
 
+        // IE Present says whether IEs follow the header: a reader trusts it.
+        if self.header.ie_present == self.ies.is_empty() {
+            return Err(byte::Error::BadInput {
+                err: "IE Present doesn't match the IEs",
+            });
+        }
+        if !self.ies.is_empty() && self.header.has_security() {
+            return Err(byte::Error::BadInput {
+                err: "IEs with security are not supported",
+            });
+        }
         bytes.write_with(offset, self.header, &context.security_ctx)?;
         if !self.ies.is_empty() {
-            if context.security_ctx.is_some() {
-                return Err(byte::Error::BadInput {
-                    err: "IEs with security are not supported",
-                });
-            }
             // A legacy beacon's or a command's content is never empty.
             let follows = matches!(
                 self.content,
@@ -311,8 +317,15 @@ impl<'a> Frame<'a> {
     {
         let offset = &mut 0;
         let header: Header = buf.read(offset)?;
-        if header.ie_present {
+        // Unsecuring a frame with IEs isn't implemented; an unsecured frame's IEs
+        // are read as `try_read` reads them.
+        if header.ie_present && header.has_security() {
             return Err(SecurityError::NotImplemented);
+        }
+        let ies_offset = *offset;
+        if header.ie_present {
+            let (_, len) = InformationElements::read(&buf[*offset..])?;
+            *offset += len;
         }
         let content = buf.read_with(offset, &header)?;
 
@@ -337,12 +350,18 @@ impl<'a> Frame<'a> {
                 return Err(SecurityError::InvalidSecContext);
             }
         }
+        let buf: &'a [u8] = buf;
+        let ies = if header.ie_present {
+            InformationElements::read(&buf[ies_offset..])?.0
+        } else {
+            InformationElements::EMPTY
+        };
         let payload =
             buf.read_with(offset, Bytes::Len(buf.len() - *offset - tag_size))?;
 
         let frame = Frame {
             header,
-            ies: InformationElements::EMPTY,
+            ies,
             content,
             payload,
             footer: [0, 0],
@@ -437,6 +456,7 @@ impl Default for FooterMode {
 /// Content of a frame
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
 pub enum FrameContent {
     /// Beacon frame content
     Beacon(Beacon),
@@ -1038,5 +1058,83 @@ mod tests {
         let back: Frame =
             buf[..len].read_with(&mut 0, FooterMode::None).unwrap();
         assert_eq!(back, frame);
+    }
+
+    /// A data frame with one Header IE (Element ID 0x2a), `ies` or none.
+    fn data_frame<'a>(ie_present: bool, ies: &'a [u8]) -> Frame<'a> {
+        Frame {
+            header: Header {
+                ie_present,
+                seq_no_suppress: false,
+                frame_type: FrameType::Data,
+                frame_pending: false,
+                ack_request: false,
+                pan_id_compress: false,
+                version: FrameVersion::Ieee802154,
+                seq: 3,
+                destination: Some(Address::Short(
+                    PanId(0x1234),
+                    ShortAddress(0xffff),
+                )),
+                source: None,
+                auxiliary_security_header: None,
+            },
+            ies: InformationElements::new(ies, &[]),
+            content: FrameContent::Data,
+            payload: &[0xaa, 0xbb],
+            footer: [0x00, 0x00],
+        }
+    }
+
+    /// IE Present must say whether the frame has IEs: a reader trusts it.
+    #[test]
+    fn ie_present_matches_the_ies() {
+        let mut header_ies = [0u8; 4];
+        header_ies
+            .write(&mut 0, ie::HeaderIe::new(0x2a, &[1, 2]))
+            .unwrap();
+        let mut buf = [0u8; 32];
+        let mut write = |frame| {
+            buf.write_with(
+                &mut 0,
+                frame,
+                &mut FrameSerDesContext::no_security(FooterMode::None),
+            )
+        };
+        assert!(write(data_frame(true, &[])).is_err());
+        assert!(write(data_frame(false, &header_ies)).is_err());
+        assert!(write(data_frame(true, &header_ies)).is_ok());
+        assert!(write(data_frame(false, &[])).is_ok());
+    }
+
+    /// A security context doesn't stop an unsecured frame's IEs: they're
+    /// written, and `try_read_and_unsecure` reads them back.
+    #[test]
+    fn unsecured_ies_with_a_security_context() {
+        let mut header_ies = [0u8; 4];
+        header_ies
+            .write(&mut 0, ie::HeaderIe::new(0x2a, &[1, 2]))
+            .unwrap();
+        let frame = data_frame(true, &header_ies);
+        let mut security = SecurityContext::no_security();
+        let mut buf = [0u8; 32];
+        let len = &mut 0;
+        buf.write_with(
+            len,
+            frame,
+            &mut FrameSerDesContext::new(FooterMode::None, Some(&mut security)),
+        )
+        .unwrap();
+        let len = *len;
+        // A 7-octet header, then the IE, HT2 and the payload, unsecured.
+        assert_eq!(&buf[7..len], &[0x02, 0x15, 1, 2, 0x80, 0x3f, 0xaa, 0xbb]);
+        let mut security = SecurityContext::no_security();
+        let (back, read) = Frame::try_read_and_unsecure(
+            &mut buf[..len],
+            &mut FrameSerDesContext::new(FooterMode::None, Some(&mut security)),
+            &mut Unimplemented,
+        )
+        .unwrap();
+        assert_eq!((back, read), (frame, len));
     }
 }
