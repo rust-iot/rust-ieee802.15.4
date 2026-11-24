@@ -102,7 +102,7 @@ const ASSOCIATION_PERMIT: u8 = 0b1000_0000;
 impl TryRead<'_> for SuperframeSpecification {
     fn try_read(bytes: &[u8], _ctx: ()) -> byte::Result<(Self, usize)> {
         let offset = &mut 0;
-        check_len(&bytes, 2)?;
+        check_len(bytes, 2)?;
         let byte: u8 = bytes.read(offset)?;
         let beacon_order = BeaconOrder::from(byte & 0x0f);
         let superframe_order = SuperframeOrder::from((byte >> 4) & 0x0f);
@@ -130,8 +130,8 @@ impl TryRead<'_> for SuperframeSpecification {
 impl TryWrite for SuperframeSpecification {
     fn try_write(self, bytes: &mut [u8], _ctx: ()) -> byte::Result<usize> {
         let offset = &mut 0;
-        let bo = u8::from(self.beacon_order.clone());
-        let so = u8::from(self.superframe_order.clone());
+        let bo = u8::from(self.beacon_order);
+        let so = u8::from(self.superframe_order);
         bytes.write(offset, (bo & 0x0f) | (so << 4))?;
         let ble = if self.battery_life_extension {
             BATTERY_LIFE_EXTENSION
@@ -189,10 +189,16 @@ impl GuaranteedTimeSlotDescriptor {
     }
 }
 
+impl Default for GuaranteedTimeSlotDescriptor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TryRead<'_> for GuaranteedTimeSlotDescriptor {
     fn try_read(bytes: &[u8], _ctx: ()) -> byte::Result<(Self, usize)> {
         let offset = &mut 0;
-        check_len(&bytes, 3)?;
+        check_len(bytes, 3)?;
         let short_address = bytes.read(offset)?;
         let byte: u8 = bytes.read(offset)?;
         let starting_slot = byte & 0x0f;
@@ -259,6 +265,12 @@ impl GuaranteedTimeSlotInformation {
     }
 }
 
+impl Default for GuaranteedTimeSlotInformation {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TryWrite for GuaranteedTimeSlotInformation {
     fn try_write(self, bytes: &mut [u8], _ctx: ()) -> byte::Result<usize> {
         let offset = &mut 0;
@@ -275,9 +287,9 @@ impl TryWrite for GuaranteedTimeSlotInformation {
                 for n in 0..self.slot_count {
                     let slot = self.slots[n];
                     if slot.direction_transmit() {
-                        direction_mask = direction_mask | dir;
+                        direction_mask |= dir;
                     }
-                    dir = dir << 1;
+                    dir <<= 1;
                 }
                 direction_mask
             };
@@ -307,7 +319,7 @@ impl TryRead<'_> for GuaranteedTimeSlotInformation {
         if slot_count > 0 {
             check_len(&bytes[*offset..], 2 + (3 * slot_count))?;
             let mut direction_mask: u8 = bytes.read(offset)?;
-            for n in 0..slot_count {
+            for item in slots.iter_mut().take(slot_count) {
                 let mut slot: GuaranteedTimeSlotDescriptor =
                     bytes.read(offset)?;
                 let direction = if direction_mask & 0b1 == 0b1 {
@@ -316,8 +328,8 @@ impl TryRead<'_> for GuaranteedTimeSlotInformation {
                     Direction::Receive
                 };
                 slot.set_direction(direction);
-                direction_mask = direction_mask >> 1;
-                slots[n] = slot;
+                direction_mask >>= 1;
+                *item = slot;
             }
         }
         Ok((
@@ -383,6 +395,12 @@ impl PendingAddress {
     }
 }
 
+impl Default for PendingAddress {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TryRead<'_> for PendingAddress {
     fn try_read(bytes: &[u8], _ctx: ()) -> byte::Result<(Self, usize)> {
         let offset = &mut 0;
@@ -393,12 +411,12 @@ impl TryRead<'_> for PendingAddress {
         let el = ((byte & EXTENDED_MASK) >> 4) as usize;
         check_len(&bytes[*offset..], (sl * ss) + (el * es))?;
         let mut short_addresses = [ShortAddress::broadcast(); 7];
-        for n in 0..sl {
-            short_addresses[n] = bytes.read(offset)?;
+        for item in short_addresses.iter_mut().take(sl) {
+            *item = bytes.read(offset)?;
         }
         let mut extended_addresses = [ExtendedAddress::broadcast(); 7];
-        for n in 0..el {
-            extended_addresses[n] = bytes.read(offset)?;
+        for item in extended_addresses.iter_mut().take(el) {
+            *item = bytes.read(offset)?;
         }
         Ok((
             Self {

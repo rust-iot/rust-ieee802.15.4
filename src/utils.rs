@@ -55,12 +55,6 @@ macro_rules! extended_enum {
                     $( $name::$var => *self == $val, )*
                 }
             }
-
-            fn ne(&self, other: &$name) -> bool {
-                match *other {
-                    $( $name::$var => *self != $val, )*
-                }
-            }
         }
     );
 }
